@@ -4,12 +4,19 @@ import com.xiaoyan.railway.common.ApiResponse;
 import com.xiaoyan.railway.common.RocketTopics;
 import com.xiaoyan.railway.common.TicketRequestEvent;
 import com.xiaoyan.railway.config.UserContext;
+import com.xiaoyan.railway.order.dto.OrderDetailVO;
+import com.xiaoyan.railway.order.dto.OrderListItemVO;
 import jakarta.validation.Valid;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -20,12 +27,14 @@ public class OrderController {
     private final RocketMQTemplate rocketMQTemplate;
     private final OrderRepository orderRepository;
     private final OrderIdGenerator orderIdGenerator;
+    private final OrderService orderService;
 
     public OrderController(RocketMQTemplate rocketMQTemplate, OrderRepository orderRepository,
-                           OrderIdGenerator orderIdGenerator) {
+                           OrderIdGenerator orderIdGenerator, OrderService orderService) {
         this.rocketMQTemplate = rocketMQTemplate;
         this.orderRepository = orderRepository;
         this.orderIdGenerator = orderIdGenerator;
+        this.orderService = orderService;
     }
 
     @PostMapping("/requests")
@@ -47,42 +56,12 @@ public class OrderController {
     }
 
     @GetMapping
-    public ApiResponse<List<Map<String, Object>>> list() {
-        return ApiResponse.ok(orderRepository.listByUser(UserContext.userId()).stream().map(this::toView).toList());
+    public ApiResponse<List<OrderListItemVO>> list() {
+        return ApiResponse.ok(orderService.list(UserContext.userId()));
     }
 
     @GetMapping("/{orderNo}")
-    public ApiResponse<Map<String, Object>> detail(@PathVariable String orderNo) {
-        return orderRepository.findByUserAndOrderNo(UserContext.userId(), orderNo)
-                .map(order -> ApiResponse.ok(toView(order)))
-                .orElseGet(() -> ApiResponse.fail("订单不存在"));
-    }
-
-    private Map<String, Object> toView(Order order) {
-        Map<String, Object> view = new LinkedHashMap<>();
-        view.put("orderNo", order.getOrderNo());
-        view.put("status", statusCode(order.getOrderStatus()));
-        view.put("orderStatus", order.getOrderStatus());
-        view.put("trainRunId", order.getTrainRunId());
-        view.put("fromStationId", order.getFromStationId());
-        view.put("toStationId", order.getToStationId());
-        view.put("totalAmount", order.getTotalAmount());
-        view.put("expireAt", order.getExpireAt());
-        view.put("createdAt", order.getCreatedAt());
-        return view;
-    }
-
-    private String statusCode(Integer status) {
-        if (status == null) {
-            return "UNKNOWN";
-        }
-        return switch (status) {
-            case 1 -> "QUEUED";
-            case 2 -> "WAIT_PAY";
-            case 3 -> "PAID";
-            case 4 -> "CANCELLED";
-            case 5 -> "FAILED";
-            default -> "UNKNOWN";
-        };
+    public ApiResponse<OrderDetailVO> detail(@PathVariable String orderNo) {
+        return ApiResponse.ok(orderService.detail(UserContext.userId(), orderNo));
     }
 }

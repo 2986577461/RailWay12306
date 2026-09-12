@@ -6,6 +6,7 @@ import com.xiaoyan.railway.basic.SeatType;
 import com.xiaoyan.railway.basic.SeatTypeMapper;
 import com.xiaoyan.railway.basic.TrainRun;
 import com.xiaoyan.railway.basic.TrainRunMapper;
+import com.xiaoyan.railway.order.Order;
 import com.xiaoyan.railway.query.TrainSearchCache;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Seeds Redis segment-inventory keys from the authoritative {@code seat_inventory} table.
@@ -139,6 +141,24 @@ public class InventoryService {
             case "BUSINESS" -> 16;
             default -> 100;
         };
+    }
+
+    /**
+     * Release locked segment inventory back to Redis when an order is cancelled or refunded.
+     * Old orders created before the segment columns existed carry null values and are skipped.
+     */
+    public void releaseOrder(Order order) {
+        if (order.getSeatTypeId() == null || order.getFromSeq() == null
+                || order.getToSeq() == null || order.getQuantity() == null) {
+            return;
+        }
+        List<String> keys = IntStream.range(order.getFromSeq(), order.getToSeq())
+                .mapToObj(seg -> "inventory:" + order.getTrainRunId() + ":" + order.getSeatTypeId() + ":" + seg)
+                .toList();
+        for (String key : keys) {
+            redis.opsForValue().increment(key, order.getQuantity());
+        }
+        trainSearchCache.evictAll();
     }
 
     /** force=true resets existing counts (开售/调库存); force=false only fills missing keys (startup). */

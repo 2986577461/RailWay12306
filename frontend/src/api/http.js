@@ -26,7 +26,13 @@ export function parseApiJson(data) {
     /"(?:\\.|[^"\\])*"|-?\d{16,}/g,
     (token) => (token.startsWith('"') ? token : `"${token}"`)
   )
-  return JSON.parse(withLongs, reviveIds)
+  // Keep amount's original decimal text. JSON number 553.00 becomes 553 in JS,
+  // which breaks HMAC(paymentNo + ":" + amount).
+  const withAmounts = withLongs.replace(
+    /"(amount|totalAmount)"\s*:\s*(-?\d+(?:\.\d+)?)/g,
+    '"$1":"$2"'
+  )
+  return JSON.parse(withAmounts, reviveIds)
 }
 
 const http = axios.create({
