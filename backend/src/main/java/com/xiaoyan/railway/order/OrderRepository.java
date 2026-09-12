@@ -1,6 +1,12 @@
 package com.xiaoyan.railway.order;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.xiaoyan.railway.basic.Fare;
+import com.xiaoyan.railway.basic.FareMapper;
+import com.xiaoyan.railway.basic.TrainRun;
+import com.xiaoyan.railway.basic.TrainRunMapper;
+import com.xiaoyan.railway.common.BizException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -12,7 +18,17 @@ import java.util.Optional;
 @Repository
 public class OrderRepository {
     private final OrderMapper orderMapper;
-    public OrderRepository(OrderMapper orderMapper) { this.orderMapper = orderMapper; }
+    private final TrainRunMapper trainRunMapper;
+    private final FareMapper fareMapper;
+    private final int expireMinutes;
+
+    public OrderRepository(OrderMapper orderMapper, TrainRunMapper trainRunMapper, FareMapper fareMapper,
+                           @Value("${railway.order.expire-minutes:15}") int expireMinutes) {
+        this.orderMapper = orderMapper;
+        this.trainRunMapper = trainRunMapper;
+        this.fareMapper = fareMapper;
+        this.expireMinutes = expireMinutes;
+    }
 
     public Optional<OrderSummary> findByIdempotencyKey(Long userId, String key) {
         Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
@@ -31,9 +47,13 @@ public class OrderRepository {
                 .trainRunId(command.trainRunId())
                 .fromStationId(command.fromStationId())
                 .toStationId(command.toStationId())
-                .orderStatus(1)
-                .totalAmount(BigDecimal.ZERO)
-                .expireAt(now.plusMinutes(15))
+                .seatTypeId(command.seatTypeId())
+                .fromSeq(command.fromSeq())
+                .toSeq(command.toSeq())
+                .quantity(command.passengerIds().size())
+                .orderStatus(OrderStatus.PENDING.getCode())
+                .totalAmount(resolveAmount(command))
+                .expireAt(now.plusMinutes(expireMinutes))
                 .idempotencyKey(idempotencyKey)
                 .createdAt(now)
                 .updatedAt(now)
@@ -46,18 +66,71 @@ public class OrderRepository {
         }
     }
 
-    public List<Order> listByUser(Long userId) {
-        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
-                .eq(Order::getUserId, userId)
-                .orderByDesc(Order::getCreatedAt));
+    /** Order owned by {@code userId}, or null. */
+    public Order findOrder(Long userId, String orderNo) {
+        return orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
+                .eq(Order::getOrderNo, orderNo)
+                .eq(Order::getUserId, userId));
     }
 
-    public Optional<Order> findByUserAndOrderNo(Long userId, String orderNo) {
-        return Optional.ofNullable(orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
+    public List<Order> listByUser(Long userId, int limit) {
+        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getUserId, userId)
-                .eq(Order::getOrderNo, orderNo)));
+                .orderByDesc(Order::getCreatedAt)
+                .last("LIMIT " + limit));
+    }
+
+    /** Pending orders whose payment window has passed — candidates for timeout cancellation. */
+    public List<Order> findExpiredPending(LocalDateTime now, int limit) {
+        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())
+                .lt(Order::getExpireAt, now)
+                .last("LIMIT " + limit));
+    }
+
+    /** Optimistic PENDING → PAID transition; returns false if already transitioned. */
+    public boolean markPaid(Long orderId) {
+        return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .set(Order::getOrderStatus, OrderStatus.PAID.getCode())
+                .set(Order::getUpdatedAt, LocalDateTime.now())
+                .eq(Order::getId, orderId)
+                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())) > 0;
+    }
+
+    /** Optimistic PENDING → CANCELLED (timeout); returns false if no longer pending. */
+    public boolean cancelPending(Long orderId) {
+        return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .set(Order::getOrderStatus, OrderStatus.CANCELLED.getCode())
+                .set(Order::getUpdatedAt, LocalDateTime.now())
+                .eq(Order::getId, orderId)
+                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())) > 0;
+    }
+
+    /** Optimistic PAID → REFUNDED; returns false if not in PAID state. */
+    public boolean markRefunded(Long orderId) {
+        return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .set(Order::getOrderStatus, OrderStatus.REFUNDED.getCode())
+                .set(Order::getUpdatedAt, LocalDateTime.now())
+                .eq(Order::getId, orderId)
+                .eq(Order::getOrderStatus, OrderStatus.PAID.getCode())) > 0;
+    }
+
+    /** total = fare(train, seatType, from, to).price × passenger count. */
+    private BigDecimal resolveAmount(TicketRequestCommand command) {
+        TrainRun run = trainRunMapper.selectById(command.trainRunId());
+        if (run == null) {
+            throw new BizException("车次运行不存在");
+        }
+        Fare fare = fareMapper.selectOne(Wrappers.<Fare>lambdaQuery()
+                .eq(Fare::getTrainId, run.getTrainId())
+                .eq(Fare::getSeatTypeId, command.seatTypeId())
+                .eq(Fare::getFromStationId, command.fromStationId())
+                .eq(Fare::getToStationId, command.toStationId()));
+        if (fare == null) {
+            throw new BizException("该区间未配置票价");
+        }
+        return fare.getPrice().multiply(BigDecimal.valueOf(command.passengerIds().size()));
     }
 
     public record OrderSummary(Long id, String orderNo) { }
 }
-

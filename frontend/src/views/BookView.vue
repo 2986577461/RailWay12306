@@ -30,7 +30,7 @@
       <button class="btn btn-primary" :disabled="loading || !selectedIds.length" type="button" @click="submit">
         {{ loading ? '提交中...' : '提交购票请求' }}
       </button>
-      <p class="tip">下单后进入排队出票，支付功能暂未开放。</p>
+      <p class="tip">提交后生成待支付订单，可在订单详情里模拟支付。</p>
     </template>
   </div>
 </template>

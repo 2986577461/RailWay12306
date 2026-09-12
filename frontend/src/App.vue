@@ -4,7 +4,7 @@
     <main class="app-main">
       <RouterView />
     </main>
-    <footer v-if="!isAdmin" class="app-footer">铁路客票演示系统 · 支付能力暂未开放</footer>
+    <footer v-if="!isAdmin" class="app-footer">铁路客票演示系统 · 支付为 mock 验签回调</footer>
   </div>
 </template>
 

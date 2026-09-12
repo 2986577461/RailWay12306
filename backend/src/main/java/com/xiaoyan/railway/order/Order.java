@@ -34,6 +34,11 @@ public class Order {
     private Long trainRunId;
     private Long fromStationId;
     private Long toStationId;
+    /** Segment-lock info needed to release Redis inventory on cancel/refund. */
+    private Long seatTypeId;
+    private Integer fromSeq;
+    private Integer toSeq;
+    private Integer quantity;
     private Integer orderStatus;
     private BigDecimal totalAmount;
     private LocalDateTime expireAt;

@@ -114,6 +114,11 @@ CREATE TABLE IF NOT EXISTS orders
     train_run_id    BIGINT         NOT NULL,
     from_station_id BIGINT         NOT NULL,
     to_station_id   BIGINT         NOT NULL,
+    -- 锁库存所需信息：取消/退款时据此释放 Redis 分段库存
+    seat_type_id    BIGINT,
+    from_seq        INT,
+    to_seq          INT,
+    quantity        INT,
     order_status    TINYINT        NOT NULL,
     total_amount    DECIMAL(12, 2) NOT NULL,
     expire_at       DATETIME,
