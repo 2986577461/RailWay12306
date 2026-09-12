@@ -1,0 +1,14 @@
+/*/.idea/
+frontend/node_modules
+frontend/dist
+/backend/docs
+/backend/src/test/
+**/backend/target
+/backend/src/main/resources/application.yml
+/backend/GOAL.markdown
+/backend/Dockerfile
+/backend/docker-compose.yml
+/backend/.dockerignore
+
+frontend/dist/
+frontend/node_modules/
