@@ -62,10 +62,13 @@ public class OrderService {
         return orders.stream().map(order -> {
             TrainRun run = runs.get(order.getTrainRunId());
             Train train = run == null ? null : trains.get(run.getTrainId());
+            int lockStatus = order.getLockStatus() == null ? LockStatus.PROCESSING.getCode() : order.getLockStatus();
             return new OrderListItemVO(
                     order.getOrderNo(),
                     order.getOrderStatus(),
                     OrderStatus.fromCode(order.getOrderStatus()).getLabel(),
+                    lockStatus,
+                    LockStatus.fromCode(lockStatus).getLabel(),
                     order.getTotalAmount(),
                     order.getCreatedAt(),
                     name(stations, order.getFromStationId()),
@@ -78,10 +81,14 @@ public class OrderService {
         Map<Long, Station> stationIndex = index(stations, Station::getId);
         TrainRun run = runs.isEmpty() ? null : runs.get(0);
         Train train = run == null ? null : trainMapper.selectById(run.getTrainId());
+        int lockStatus = order.getLockStatus() == null ? LockStatus.PROCESSING.getCode() : order.getLockStatus();
         return new OrderDetailVO(
                 order.getOrderNo(),
                 order.getOrderStatus(),
                 OrderStatus.fromCode(order.getOrderStatus()).getLabel(),
+                lockStatus,
+                LockStatus.fromCode(lockStatus).getLabel(),
+                order.getLockFailReason(),
                 order.getTotalAmount(),
                 order.getExpireAt(),
                 order.getCreatedAt(),

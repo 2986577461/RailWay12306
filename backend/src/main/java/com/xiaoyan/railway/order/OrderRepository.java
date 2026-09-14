@@ -1,5 +1,6 @@
 package com.xiaoyan.railway.order;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.basic.Fare;
 import com.xiaoyan.railway.basic.FareMapper;
@@ -34,7 +35,7 @@ public class OrderRepository {
         Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getUserId, userId)
                 .eq(Order::getIdempotencyKey, key));
-        return Optional.ofNullable(order).map(o -> new OrderSummary(o.getId(), o.getOrderNo()));
+        return Optional.ofNullable(order).map(o -> new OrderSummary(o.getId(), o.getOrderNo(), o.getLockStatus()));
     }
 
     public OrderSummary create(long id, Long userId, TicketRequestCommand command, String idempotencyKey) {
@@ -60,7 +61,7 @@ public class OrderRepository {
                 .build();
         try {
             orderMapper.insert(order);
-            return new OrderSummary(id, orderNo);
+            return new OrderSummary(id, orderNo, LockStatus.PROCESSING.getCode());
         } catch (DuplicateKeyException ignored) {
             return findByIdempotencyKey(userId, idempotencyKey).orElseThrow();
         }
@@ -86,6 +87,22 @@ public class OrderRepository {
                 .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())
                 .lt(Order::getExpireAt, now)
                 .last("LIMIT " + limit));
+    }
+
+    /**
+     * Persist the async inventory-lock result. Only applies while the order is still PENDING,
+     * so a stale lock result (arriving after timeout-cancel, say) is ignored.
+     */
+    public boolean markLockStatus(Long orderId, int lockStatus, String failReason) {
+        LambdaUpdateWrapper<Order> update = Wrappers.<Order>lambdaUpdate()
+                .set(Order::getLockStatus, lockStatus)
+                .set(Order::getUpdatedAt, LocalDateTime.now())
+                .eq(Order::getId, orderId)
+                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode());
+        if (failReason != null) {
+            update.set(Order::getLockFailReason, failReason);
+        }
+        return orderMapper.update(null, update) > 0;
     }
 
     /** Optimistic PENDING → PAID transition; returns false if already transitioned. */
@@ -132,5 +149,5 @@ public class OrderRepository {
         return fare.getPrice().multiply(BigDecimal.valueOf(command.passengerIds().size()));
     }
 
-    public record OrderSummary(Long id, String orderNo) { }
+    public record OrderSummary(Long id, String orderNo, Integer lockStatus) { }
 }

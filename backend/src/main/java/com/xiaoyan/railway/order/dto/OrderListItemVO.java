@@ -7,6 +7,8 @@ public record OrderListItemVO(
         String orderNo,
         int status,
         String statusText,
+        int lockStatus,
+        String lockStatusText,
         BigDecimal totalAmount,
         LocalDateTime createdAt,
         String fromStationName,

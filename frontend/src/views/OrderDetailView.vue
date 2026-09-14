@@ -11,11 +11,27 @@
       <p>金额：¥{{ money(order.totalAmount) }}</p>
       <p>创建时间：{{ order.createdAt }}</p>
       <p v-if="order.expireAt">支付截止：{{ order.expireAt }}</p>
+      <p>
+        锁座状态：
+        <span :class="['tag', lockClass(order.lockStatus)]">{{ order.lockStatusText || lockText(order.lockStatus) }}</span>
+      </p>
 
       <div v-if="order.status === 1" class="pay">
+        <p v-if="locking" class="wait">正在锁定座位，请稍候...</p>
+        <p v-else-if="order.lockStatus === 2" class="error">{{ order.lockFailReason || lockError || '锁定失败' }}</p>
+        <p v-else-if="lockError" class="error">{{ lockError }}</p>
         <p v-if="payError" class="error">{{ payError }}</p>
-        <button class="btn btn-primary" :disabled="opening" type="button" @click="openCashier">
+        <button
+          v-if="canPay"
+          class="btn btn-primary"
+          :disabled="opening"
+          type="button"
+          @click="openCashier"
+        >
           {{ opening ? '正在拉起收银台...' : '去支付' }}
+        </button>
+        <button v-else class="btn btn-primary" disabled type="button">
+          {{ locking ? '锁座中...' : '暂不可支付' }}
         </button>
       </div>
       <div v-else-if="order.status === 2" class="pay">
@@ -49,7 +65,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getOrder } from '../api/order'
 import { createPayment, mockNotify, refundPayment } from '../api/payment'
@@ -58,6 +74,8 @@ const route = useRoute()
 const order = ref(null)
 const error = ref('')
 const payError = ref('')
+const lockError = ref('')
+const locking = ref(false)
 const opening = ref(false)
 const cashierOpen = ref(false)
 const confirming = ref(false)
@@ -65,26 +83,58 @@ const refunding = ref(false)
 const countdown = ref(0)
 const payment = reactive({ paymentNo: '', amount: null, mockSign: '' })
 
-let timer = 0
+let payTimer = 0
+let polling = false
 const COUNTDOWN_SECONDS = 4
+const MAX_POLLS = 10
+const POLL_MS = 1000
 
 const money = (value) => Number(value || 0).toFixed(2)
 const tagClass = (status) => ({ 1: 'pending', 2: 'paid', 3: 'cancel', 4: 'done', 5: 'refund' }[status] || '')
+const lockClass = (status) => ({ 0: 'locking', 1: 'done', 2: 'fail' }[status] || '')
+const lockText = (status) => ({ 0: '锁定处理中', 1: '已锁定', 2: '锁定失败' }[status] || '')
+const canPay = computed(() => order.value?.status === 1 && order.value?.lockStatus === 1 && !locking.value)
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function load() {
   order.value = await getOrder(route.params.orderNo)
 }
 
+async function pollLock() {
+  if (!order.value || order.value.lockStatus !== 0 || polling) return
+  polling = true
+  locking.value = true
+  lockError.value = ''
+  try {
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await sleep(POLL_MS)
+      await load()
+      if (order.value.lockStatus === 1) return
+      if (order.value.lockStatus === 2) {
+        lockError.value = order.value.lockFailReason || '锁定失败'
+        return
+      }
+    }
+    lockError.value = '出票异常，请稍后重试'
+  } catch (e) {
+    lockError.value = e.message
+  } finally {
+    locking.value = false
+    polling = false
+  }
+}
+
 function startCountdown() {
-  clearInterval(timer)
+  clearInterval(payTimer)
   countdown.value = COUNTDOWN_SECONDS
-  timer = window.setInterval(() => {
+  payTimer = window.setInterval(() => {
     countdown.value -= 1
-    if (countdown.value <= 0) clearInterval(timer)
+    if (countdown.value <= 0) clearInterval(payTimer)
   }, 1000)
 }
 
 async function openCashier() {
+  if (!canPay.value) return
   opening.value = true
   payError.value = ''
   try {
@@ -121,7 +171,7 @@ async function confirmPay() {
 
 function closeCashier() {
   cashierOpen.value = false
-  clearInterval(timer)
+  clearInterval(payTimer)
 }
 
 async function refund() {
@@ -141,12 +191,13 @@ async function refund() {
 onMounted(async () => {
   try {
     await load()
+    await pollLock()
   } catch (e) {
     error.value = e.message
   }
 })
 
-onBeforeUnmount(() => clearInterval(timer))
+onBeforeUnmount(() => clearInterval(payTimer))
 </script>
 
 <style scoped>
@@ -162,6 +213,8 @@ onBeforeUnmount(() => clearInterval(timer))
 .tag.paid { color: #1a73c7; background: #e8f1fb; }
 .tag.cancel, .tag.refund { color: #8a93a0; background: #f3f5f7; }
 .tag.done { color: #0f8a4b; background: #e7f7ee; }
+.tag.locking { color: #c56a00; background: #fff3e0; }
+.tag.fail { color: #e21c21; background: #fdecec; }
 .cashier {
   width: min(360px, 100%);
   padding: 24px;

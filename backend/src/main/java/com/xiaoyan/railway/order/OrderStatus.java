@@ -1,6 +1,9 @@
 package com.xiaoyan.railway.order;
 
+import lombok.Getter;
+
 /** Order state machine. This step implements PENDING → PAID; CANCELLED/REFUNDED land in later steps. */
+@Getter
 public enum OrderStatus {
     PENDING(1, "待支付"),
     PAID(2, "已支付"),
@@ -15,9 +18,6 @@ public enum OrderStatus {
         this.code = code;
         this.label = label;
     }
-
-    public int getCode() { return code; }
-    public String getLabel() { return label; }
 
     public static OrderStatus fromCode(int code) {
         for (OrderStatus status : values()) {

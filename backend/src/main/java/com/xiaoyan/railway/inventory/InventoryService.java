@@ -6,6 +6,7 @@ import com.xiaoyan.railway.basic.SeatType;
 import com.xiaoyan.railway.basic.SeatTypeMapper;
 import com.xiaoyan.railway.basic.TrainRun;
 import com.xiaoyan.railway.basic.TrainRunMapper;
+import com.xiaoyan.railway.order.LockStatus;
 import com.xiaoyan.railway.order.Order;
 import com.xiaoyan.railway.query.TrainSearchCache;
 import org.springframework.data.redis.core.RedisCallback;
@@ -152,12 +153,19 @@ public class InventoryService {
                 || order.getToSeq() == null || order.getQuantity() == null) {
             return;
         }
+        // 若明确"从未锁定成功"（处理中/失败），无库存可释放；否则超时/退款会把余票加回多一次（幽灵余票）。
+        // null 视为老订单：无法确定，保持旧行为（按已锁处理）。
+        if (order.getLockStatus() != null && order.getLockStatus() != LockStatus.LOCKED.getCode()) {
+            return;
+        }
         List<String> keys = IntStream.range(order.getFromSeq(), order.getToSeq())
                 .mapToObj(seg -> "inventory:" + order.getTrainRunId() + ":" + order.getSeatTypeId() + ":" + seg)
                 .toList();
         for (String key : keys) {
             redis.opsForValue().increment(key, order.getQuantity());
         }
+        // 注意：inventory:locked:{orderId} 锁记录刻意不在这里删除，交给 TTL 自然过期——
+        // 若删掉，迟到的重复事件（MQ 重投）会命中无记录而二次扣库存。
         trainSearchCache.evictAll();
     }
 

@@ -3,39 +3,34 @@ package com.xiaoyan.railway.payment;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.common.BizException;
-import com.xiaoyan.railway.common.OrderPaidEvent;
-import com.xiaoyan.railway.common.RocketTopics;
 import com.xiaoyan.railway.inventory.InventoryService;
+import com.xiaoyan.railway.order.LockStatus;
 import com.xiaoyan.railway.order.Order;
 import com.xiaoyan.railway.order.OrderRepository;
 import com.xiaoyan.railway.order.OrderStatus;
 import com.xiaoyan.railway.payment.dto.MockNotifyCommand;
 import com.xiaoyan.railway.payment.dto.PaymentVO;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Service
 public class PaymentService {
     private final PaymentMapper paymentMapper;
     private final OrderRepository orderRepository;
     private final MockSigner mockSigner;
-    private final RocketMQTemplate rocketMQTemplate;
+    private final OrderPaidPublisher orderPaidPublisher;
     private final InventoryService inventoryService;
 
     public PaymentService(PaymentMapper paymentMapper, OrderRepository orderRepository,
-                          MockSigner mockSigner, RocketMQTemplate rocketMQTemplate,
+                          MockSigner mockSigner, OrderPaidPublisher orderPaidPublisher,
                           InventoryService inventoryService) {
         this.paymentMapper = paymentMapper;
         this.orderRepository = orderRepository;
         this.mockSigner = mockSigner;
-        this.rocketMQTemplate = rocketMQTemplate;
+        this.orderPaidPublisher = orderPaidPublisher;
         this.inventoryService = inventoryService;
     }
 
@@ -47,6 +42,9 @@ public class PaymentService {
         }
         if (order.getOrderStatus() != OrderStatus.PENDING.getCode()) {
             throw new BizException("订单不可支付");
+        }
+        if (order.getLockStatus() == null || order.getLockStatus() != LockStatus.LOCKED.getCode()) {
+            throw new BizException("订单尚未锁定座位，暂不可支付");
         }
         Payment payment = paymentMapper.selectOne(Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, order.getId()));
         if (payment == null) {
@@ -97,13 +95,7 @@ public class PaymentService {
         }
         orderRepository.markPaid(payment.getOrderId());
         // 事务提交后再发事件，避免"库已改、消息没发"
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                rocketMQTemplate.convertAndSend(RocketTopics.ORDER_PAID,
-                        new OrderPaidEvent(UUID.randomUUID().toString(), payment.getOrderId(), payment.getPaymentNo()));
-            }
-        });
+        orderPaidPublisher.publishAfterCommit(payment);
         return "SUCCESS";
     }
 

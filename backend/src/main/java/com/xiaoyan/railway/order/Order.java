@@ -40,6 +40,10 @@ public class Order {
     private Integer toSeq;
     private Integer quantity;
     private Integer orderStatus;
+    /** 库存锁定结果（0处理中/1已锁/2失败，见 {@link LockStatus}），与订单状态正交——锁失败则不可支付。 */
+    private Integer lockStatus;
+    /** 锁定失败原因（如"余票不足"），锁定成功后为 null。 */
+    private String lockFailReason;
     private BigDecimal totalAmount;
     private LocalDateTime expireAt;
     private String idempotencyKey;

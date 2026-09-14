@@ -120,6 +120,9 @@ CREATE TABLE IF NOT EXISTS orders
     to_seq          INT,
     quantity        INT,
     order_status    TINYINT        NOT NULL,
+    -- 库存锁定状态：0处理中 1已锁 2锁定失败；lock_fail_reason 记录失败原因（如"余票不足"）
+    lock_status     TINYINT        NOT NULL DEFAULT 0,
+    lock_fail_reason VARCHAR(255),
     total_amount    DECIMAL(12, 2) NOT NULL,
     expire_at       DATETIME,
     idempotency_key VARCHAR(128)   NOT NULL,

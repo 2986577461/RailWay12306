@@ -75,7 +75,7 @@ public class TrainSearchCache {
         if (after != null) {
             return readValue(after);
         }
-        // 兜底：锁已过期仍无写入（极端情况），直接重建
+        // 兜底：锁已过期仍无写入（极端情况）可能是redis崩了，直接重建
         return rebuildAndCache(key, loader);
     }
 

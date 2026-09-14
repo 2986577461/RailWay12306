@@ -11,7 +11,10 @@
       <div class="meta">
         <strong>¥{{ money(item.totalAmount) }}</strong>
         <span :class="['tag', tagClass(item.status)]">{{ item.statusText }}</span>
-        <RouterLink v-if="item.status === 1" class="btn btn-primary btn-sm" :to="`/orders/${item.orderNo}`">去支付</RouterLink>
+        <span :class="['tag', lockClass(item.lockStatus)]">{{ item.lockStatusText || lockText(item.lockStatus) }}</span>
+        <RouterLink v-if="item.status === 1 && item.lockStatus === 1" class="btn btn-primary btn-sm" :to="`/orders/${item.orderNo}`">去支付</RouterLink>
+        <span v-else-if="item.status === 1 && item.lockStatus === 0" class="wait">锁座中</span>
+        <span v-else-if="item.status === 1 && item.lockStatus === 2" class="fail">锁定失败</span>
         <button
           v-else-if="item.status === 2"
           class="btn btn-ghost btn-sm"
@@ -34,6 +37,8 @@ const error = ref('')
 const refunding = ref('')
 const money = (value) => Number(value || 0).toFixed(2)
 const tagClass = (status) => ({ 1: 'pending', 2: 'paid', 3: 'cancel', 4: 'done', 5: 'refund' }[status] || '')
+const lockClass = (status) => ({ 0: 'locking', 1: 'done', 2: 'fail' }[status] || '')
+const lockText = (status) => ({ 0: '锁定处理中', 1: '已锁定', 2: '锁定失败' }[status] || '')
 
 async function load() {
   items.value = await listOrders()
@@ -73,4 +78,8 @@ onMounted(async () => {
 .tag.paid { color: #1a73c7; background: #e8f1fb; }
 .tag.cancel, .tag.refund { color: #8a93a0; background: #f3f5f7; }
 .tag.done { color: #0f8a4b; background: #e7f7ee; }
+.tag.locking { color: #c56a00; background: #fff3e0; }
+.tag.fail { color: #e21c21; background: #fdecec; }
+.wait { color: #c56a00; font-size: 13px; }
+.fail { color: #e21c21; font-size: 13px; }
 </style>
