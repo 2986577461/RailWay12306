@@ -69,7 +69,9 @@ public class QueryService {
         return seats;
     }
 
-    /** Live remaining seats = min over the Redis segment keys spanning [fromSeq, toSeq). */
+    /**
+     * Live remaining seats = min over the Redis segment keys spanning [fromSeq, toSeq).
+     */
     private int available(Long trainRunId, Long seatTypeId, int fromSeq, int toSeq, int total) {
         List<String> keys = IntStream.range(fromSeq, toSeq)
                 .mapToObj(seg -> "inventory:" + trainRunId + ":" + seatTypeId + ":" + seg)

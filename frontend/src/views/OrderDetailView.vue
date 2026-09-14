@@ -86,7 +86,7 @@ const payment = reactive({ paymentNo: '', amount: null, mockSign: '' })
 let payTimer = 0
 let polling = false
 const COUNTDOWN_SECONDS = 4
-const MAX_POLLS = 10
+const MAX_POLLS = 25
 const POLL_MS = 1000
 
 const money = (value) => Number(value || 0).toFixed(2)
@@ -115,7 +115,20 @@ async function pollLock() {
         return
       }
     }
-    lockError.value = '出票异常，请稍后重试'
+    lockError.value = '出票较慢，仍在等待锁座结果，可稍后刷新'
+    for (let i = 0; i < 20; i++) {
+      await sleep(2000)
+      await load()
+      if (order.value.lockStatus === 1) {
+        lockError.value = ''
+        return
+      }
+      if (order.value.lockStatus === 2) {
+        lockError.value = order.value.lockFailReason || '锁定失败'
+        return
+      }
+    }
+    lockError.value = '出票异常，请稍后刷新订单'
   } catch (e) {
     lockError.value = e.message
   } finally {

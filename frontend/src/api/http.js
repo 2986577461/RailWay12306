@@ -36,7 +36,7 @@ export function parseApiJson(data) {
 }
 
 const http = axios.create({
-  baseURL: '/api',
+  baseURL: `${import.meta.env.BASE_URL}api`,
   timeout: 15000,
   transformResponse: [parseApiJson]
 })

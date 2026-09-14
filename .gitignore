@@ -4,7 +4,6 @@ frontend/dist
 /backend/docs
 /backend/src/test/
 **/backend/target
-/backend/src/main/resources/application.yml
 /backend/GOAL.markdown
 /backend/Dockerfile
 /backend/docker-compose.yml
@@ -12,3 +11,7 @@ frontend/dist
 
 frontend/dist/
 frontend/node_modules/
+/k6
+/deploy
+/AGENTS.md
+/backend/src/main/resources/application-dev.yml

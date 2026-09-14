@@ -67,7 +67,9 @@ public class OrderRepository {
         }
     }
 
-    /** Order owned by {@code userId}, or null. */
+    /**
+     * Order owned by {@code userId}, or null.
+     */
     public Order findOrder(Long userId, String orderNo) {
         return orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getOrderNo, orderNo)
@@ -81,7 +83,9 @@ public class OrderRepository {
                 .last("LIMIT " + limit));
     }
 
-    /** Pending orders whose payment window has passed — candidates for timeout cancellation. */
+    /**
+     * Pending orders whose payment window has passed — candidates for timeout cancellation.
+     */
     public List<Order> findExpiredPending(LocalDateTime now, int limit) {
         return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())
@@ -105,7 +109,9 @@ public class OrderRepository {
         return orderMapper.update(null, update) > 0;
     }
 
-    /** Optimistic PENDING → PAID transition; returns false if already transitioned. */
+    /**
+     * Optimistic PENDING → PAID transition; returns false if already transitioned.
+     */
     public boolean markPaid(Long orderId) {
         return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
                 .set(Order::getOrderStatus, OrderStatus.PAID.getCode())
@@ -114,25 +120,33 @@ public class OrderRepository {
                 .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())) > 0;
     }
 
-    /** Optimistic PENDING → CANCELLED (timeout); returns false if no longer pending. */
+    /**
+     * Optimistic PENDING → CANCELLED (timeout); returns false if no longer pending.
+     */
     public boolean cancelPending(Long orderId) {
         return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
                 .set(Order::getOrderStatus, OrderStatus.CANCELLED.getCode())
+                .set(Order::getLockStatus, LockStatus.PROCESSING.getCode())
                 .set(Order::getUpdatedAt, LocalDateTime.now())
                 .eq(Order::getId, orderId)
                 .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())) > 0;
     }
 
-    /** Optimistic PAID → REFUNDED; returns false if not in PAID state. */
+    /**
+     * Optimistic PAID → REFUNDED; returns false if not in PAID state.
+     */
     public boolean markRefunded(Long orderId) {
         return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
                 .set(Order::getOrderStatus, OrderStatus.REFUNDED.getCode())
                 .set(Order::getUpdatedAt, LocalDateTime.now())
+                .set(Order::getLockStatus, LockStatus.PROCESSING.getCode())
                 .eq(Order::getId, orderId)
                 .eq(Order::getOrderStatus, OrderStatus.PAID.getCode())) > 0;
     }
 
-    /** total = fare(train, seatType, from, to).price × passenger count. */
+    /**
+     * total = fare(train, seatType, from, to).price × passenger count.
+     */
     private BigDecimal resolveAmount(TicketRequestCommand command) {
         TrainRun run = trainRunMapper.selectById(command.trainRunId());
         if (run == null) {
@@ -149,5 +163,6 @@ public class OrderRepository {
         return fare.getPrice().multiply(BigDecimal.valueOf(command.passengerIds().size()));
     }
 
-    public record OrderSummary(Long id, String orderNo, Integer lockStatus) { }
+    public record OrderSummary(Long id, String orderNo, Integer lockStatus) {
+    }
 }

@@ -43,7 +43,7 @@ public class TrainSearchCache {
 
     public void evictAll() {
         Set<String> keys = redis.keys("query:trains:*");
-        if (keys != null && !keys.isEmpty()) {
+        if (!keys.isEmpty()) {
             redis.delete(keys);
         }
     }
