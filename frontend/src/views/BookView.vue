@@ -36,10 +36,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { listPassengers } from '../api/passenger'
-import { createOrder } from '../api/order'
+import { createOrder, createIdempotencyKey } from '../api/order'
 
 const router = useRouter()
 const train = ref(null)
@@ -47,6 +47,12 @@ const passengers = ref([])
 const selectedIds = ref([])
 const loading = ref(false)
 const error = ref('')
+let idempotencyKey = createIdempotencyKey()
+
+// 乘车人选择变了说明下单意图变了，之前的幂等键不能再代表这次提交
+watch(selectedIds, () => {
+  idempotencyKey = createIdempotencyKey()
+})
 
 onMounted(async () => {
   const raw = sessionStorage.getItem('railway.selectedTrain')
@@ -70,7 +76,7 @@ async function submit() {
       fromSeq: train.value.fromSeq,
       toSeq: train.value.toSeq,
       passengerIds: selectedIds.value
-    })
+    }, idempotencyKey)
     router.replace({ name: 'order-detail', params: { orderNo: result.orderNo } })
   } catch (e) {
     error.value = e.message
