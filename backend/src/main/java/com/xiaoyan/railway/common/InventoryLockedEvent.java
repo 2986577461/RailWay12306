@@ -1,5 +1,7 @@
 package com.xiaoyan.railway.common;
 
+import java.util.List;
+
 public record InventoryLockedEvent(
         String eventId,
         String requestId,
@@ -11,5 +13,6 @@ public record InventoryLockedEvent(
         int quantity,
         String lockNo,
         boolean locked,
-        String reason
+        String reason,
+        List<Long> passengerIds
 ) { }

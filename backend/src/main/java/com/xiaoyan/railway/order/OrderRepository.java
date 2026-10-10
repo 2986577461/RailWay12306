@@ -76,6 +76,10 @@ public class OrderRepository {
                 .eq(Order::getUserId, userId));
     }
 
+    public Order findById(Long orderId) {
+        return orderMapper.selectById(orderId);
+    }
+
     public List<Order> listByUser(Long userId, int limit) {
         return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getUserId, userId)

@@ -28,7 +28,7 @@ public class InventoryListener implements RocketMQListener<TicketRequestEvent> {
                 request.fromSeq(), request.toSeq(), request.quantity());
         InventoryLockedEvent event = new InventoryLockedEvent(request.eventId(), request.requestId(), request.orderId(),
                 request.trainRunId(), request.seatTypeId(), request.fromSeq(), request.toSeq(), request.quantity(),
-                "LOCK-" + request.requestId(), locked, locked ? null : "余票不足");
+                "LOCK-" + request.requestId(), locked, locked ? null : "余票不足", request.passengerIds());
         rocketMQTemplate.convertAndSend(RocketTopics.INVENTORY_LOCKED, event);
         if (locked) {
             rocketMQTemplate.convertAndSend(RocketTopics.CACHE_EVICT,

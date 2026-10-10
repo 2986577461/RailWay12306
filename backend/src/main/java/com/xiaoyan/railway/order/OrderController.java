@@ -1,11 +1,15 @@
 package com.xiaoyan.railway.order;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.common.ApiResponse;
 import com.xiaoyan.railway.common.RocketTopics;
 import com.xiaoyan.railway.common.TicketRequestEvent;
 import com.xiaoyan.railway.config.UserContext;
 import com.xiaoyan.railway.order.dto.OrderDetailVO;
 import com.xiaoyan.railway.order.dto.OrderListItemVO;
+import com.xiaoyan.railway.passenger.Passenger;
+import com.xiaoyan.railway.passenger.PassengerMapper;
 import jakarta.validation.Valid;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.messaging.support.MessageBuilder;
@@ -29,15 +33,20 @@ public class OrderController {
     private final OrderIdGenerator orderIdGenerator;
     private final OrderService orderService;
     private final OrderRateLimiter orderRateLimiter;
+    private final PassengerMapper passengerMapper;
+    private final OrderPassengerMapper orderPassengerMapper;
 
     public OrderController(RocketMQTemplate rocketMQTemplate, OrderRepository orderRepository,
                            OrderIdGenerator orderIdGenerator, OrderService orderService,
-                           OrderRateLimiter orderRateLimiter) {
+                           OrderRateLimiter orderRateLimiter, PassengerMapper passengerMapper,
+                           OrderPassengerMapper orderPassengerMapper) {
         this.rocketMQTemplate = rocketMQTemplate;
         this.orderRepository = orderRepository;
         this.orderIdGenerator = orderIdGenerator;
         this.orderService = orderService;
         this.orderRateLimiter = orderRateLimiter;
+        this.passengerMapper = passengerMapper;
+        this.orderPassengerMapper = orderPassengerMapper;
     }
 
     @PostMapping("/requests")
@@ -48,6 +57,16 @@ public class OrderController {
             return ApiResponse.fail("区间或乘车人参数不合法");
         }
         orderRateLimiter.check(userId);
+
+        List<Passenger> passengers = passengerMapper.selectList(Wrappers.<Passenger>lambdaQuery()
+                .in(Passenger::getId, request.passengerIds()));
+        List<String> idCardNos = passengers.stream().map(Passenger::getIdCardNo).toList();
+        List<String> duplicateIdCardNos = idCardNos.isEmpty() ? List.of()
+                : orderPassengerMapper.findDuplicateIdCardNos(request.trainRunId(), request.fromSeq(), request.toSeq(), idCardNos);
+        if (!duplicateIdCardNos.isEmpty()) {
+            return ApiResponse.fail("存在乘车人已购买该车次该区间的车票，请核实后再提交");
+        }
+
         String requestId = idempotencyKey == null || idempotencyKey.isBlank()
                 ? UUID.randomUUID().toString() : idempotencyKey;
 
