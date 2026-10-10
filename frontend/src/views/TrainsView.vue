@@ -92,7 +92,6 @@ function formatPrice(price) {
 
 function ticketText(available) {
   if (available <= 0) return '无票'
-  if (available > 20) return '有票'
   return `${available}张`
 }
 

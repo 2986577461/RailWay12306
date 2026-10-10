@@ -6,9 +6,11 @@ import com.xiaoyan.railway.basic.SeatType;
 import com.xiaoyan.railway.basic.SeatTypeMapper;
 import com.xiaoyan.railway.basic.TrainRun;
 import com.xiaoyan.railway.basic.TrainRunMapper;
+import com.xiaoyan.railway.common.CacheEvictEvent;
+import com.xiaoyan.railway.common.RocketTopics;
 import com.xiaoyan.railway.order.LockStatus;
 import com.xiaoyan.railway.order.Order;
-import com.xiaoyan.railway.query.TrainSearchCache;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -33,16 +35,21 @@ public class InventoryService {
     private final TrainRunMapper trainRunMapper;
     private final InventoryMapper inventoryMapper;
     private final SeatTypeMapper seatTypeMapper;
-    private final TrainSearchCache trainSearchCache;
+    private final RocketMQTemplate rocketMQTemplate;
 
     public InventoryService(StringRedisTemplate redis, TrainRunMapper trainRunMapper,
                             InventoryMapper inventoryMapper, SeatTypeMapper seatTypeMapper,
-                            TrainSearchCache trainSearchCache) {
+                            RocketMQTemplate rocketMQTemplate) {
         this.redis = redis;
         this.trainRunMapper = trainRunMapper;
         this.inventoryMapper = inventoryMapper;
         this.seatTypeMapper = seatTypeMapper;
-        this.trainSearchCache = trainSearchCache;
+        this.rocketMQTemplate = rocketMQTemplate;
+    }
+
+    /** 发 MQ 让 {@code CacheEvictListener} 可靠地驱逐查询缓存，而不是在本进程直接操作 Redis。 */
+    private void evictSearchCache() {
+        rocketMQTemplate.convertAndSend(RocketTopics.CACHE_EVICT, new CacheEvictEvent(String.valueOf(IdWorker.getId())));
     }
 
     /**
@@ -88,7 +95,7 @@ public class InventoryService {
             }
         }
         writePipelined(keys, values, force);
-        trainSearchCache.evictAll();
+        evictSearchCache();
     }
 
     /** Seed one run's segment inventory (newly created run). */
@@ -110,7 +117,7 @@ public class InventoryService {
             }
         }
         writePipelined(keys, values, force);
-        trainSearchCache.evictAll();
+        evictSearchCache();
     }
 
     /**
@@ -166,7 +173,7 @@ public class InventoryService {
         }
         // 注意：inventory:locked:{orderId} 锁记录刻意不在这里删除，交给 TTL 自然过期——
         // 若删掉，迟到的重复事件（MQ 重投）会命中无记录而二次扣库存。
-        trainSearchCache.evictAll();
+        evictSearchCache();
     }
 
     /** force=true resets existing counts (开售/调库存); force=false only fills missing keys (startup). */
