@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -72,9 +73,13 @@ public class OrderController {
 
         OrderRepository.OrderSummary order = orderRepository.findByIdempotencyKey(userId, requestId)
                 .orElseGet(() -> orderRepository.create(orderIdGenerator.nextId(), userId, request, requestId));
+        if (order.orderStatus() == OrderStatus.CANCELLED.getCode()) {
+            return ApiResponse.fail("订单已超时取消，请重新下单");
+        }
         TicketRequestEvent event = new TicketRequestEvent(UUID.randomUUID().toString(), requestId, order.id(), userId,
                 request.trainRunId(), request.seatTypeId(), request.fromSeq(), request.toSeq(),
-                request.passengerIds().size(), request.passengerIds());
+                request.passengerIds().size(), request.passengerIds(),
+                order.expireAt() == null ? null : order.expireAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
 
 //       //上面的订单即使是从数据库查出来的也必须被消费一次
 //       因为第一次新建订单时，消息队列如果宕机，后续从数据库查出原订单却不消费，就无法减库存

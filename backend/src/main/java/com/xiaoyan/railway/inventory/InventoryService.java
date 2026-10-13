@@ -8,11 +8,12 @@ import com.xiaoyan.railway.basic.TrainRun;
 import com.xiaoyan.railway.basic.TrainRunMapper;
 import com.xiaoyan.railway.common.CacheEvictEvent;
 import com.xiaoyan.railway.common.RocketTopics;
-import com.xiaoyan.railway.order.LockStatus;
 import com.xiaoyan.railway.order.Order;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -36,6 +37,7 @@ public class InventoryService {
     private final InventoryMapper inventoryMapper;
     private final SeatTypeMapper seatTypeMapper;
     private final RocketMQTemplate rocketMQTemplate;
+    private final DefaultRedisScript<Long> cancelScript;
 
     public InventoryService(StringRedisTemplate redis, TrainRunMapper trainRunMapper,
                             InventoryMapper inventoryMapper, SeatTypeMapper seatTypeMapper,
@@ -45,6 +47,9 @@ public class InventoryService {
         this.inventoryMapper = inventoryMapper;
         this.seatTypeMapper = seatTypeMapper;
         this.rocketMQTemplate = rocketMQTemplate;
+        this.cancelScript = new DefaultRedisScript<>();
+        this.cancelScript.setLocation(new ClassPathResource("inventory-cancel.lua"));
+        this.cancelScript.setResultType(Long.class);
     }
 
     /** 发 MQ 让 {@code CacheEvictListener} 可靠地驱逐查询缓存，而不是在本进程直接操作 Redis。 */
@@ -152,28 +157,47 @@ public class InventoryService {
     }
 
     /**
-     * Release locked segment inventory back to Redis when an order is cancelled or refunded.
-     * Old orders created before the segment columns existed carry null values and are skipped.
+     * Refund of a PAID order: PAID implies the lock succeeded, so the stock always goes back.
+     * The lock record is not consulted because it may already have expired.
      */
     public void releaseOrder(Order order) {
-        if (order.getSeatTypeId() == null || order.getFromSeq() == null
-                || order.getToSeq() == null || order.getQuantity() == null) {
+        if (segmentHasNull(order)) {
             return;
         }
-        // 若明确"从未锁定成功"（处理中/失败），无库存可释放；否则超时/退款会把余票加回多一次（幽灵余票）。
-        // null 视为老订单：无法确定，保持旧行为（按已锁处理）。
-        if (order.getLockStatus() != null && order.getLockStatus() != LockStatus.LOCKED.getCode()) {
-            return;
-        }
-        List<String> keys = IntStream.range(order.getFromSeq(), order.getToSeq())
-                .mapToObj(seg -> "inventory:" + order.getTrainRunId() + ":" + order.getSeatTypeId() + ":" + seg)
-                .toList();
-        for (String key : keys) {
+        for (String key : segmentKeys(order)) {
             redis.opsForValue().increment(key, order.getQuantity());
         }
         // 注意：inventory:locked:{orderId} 锁记录刻意不在这里删除，交给 TTL 自然过期——
         // 若删掉，迟到的重复事件（MQ 重投）会命中无记录而二次扣库存。
         evictSearchCache();
+    }
+
+    /**
+     * Timeout cancel of an UNPAID order. Returns stock only if this order's lock actually deducted it;
+     * otherwise leaves a tombstone so a lock event arriving later cannot deduct for a cancelled order.
+     */
+    public void cancelUnpaidOrder(Order order) {
+        if (segmentHasNull(order)) {
+            return;
+        }
+        List<String> keys = new ArrayList<>();
+        keys.add("inventory:locked:" + order.getId());
+        keys.addAll(segmentKeys(order));
+        redis.execute(cancelScript, keys,
+                String.valueOf(order.getQuantity()), String.valueOf(SegmentInventoryLocker.LOCK_RECORD_TTL_SECONDS));
+        evictSearchCache();
+    }
+
+    /** Old orders created before the segment columns existed carry null values and are skipped. */
+    private static boolean segmentHasNull(Order order) {
+        return order.getSeatTypeId() == null || order.getFromSeq() == null
+                || order.getToSeq() == null || order.getQuantity() == null;
+    }
+
+    private static List<String> segmentKeys(Order order) {
+        return IntStream.range(order.getFromSeq(), order.getToSeq())
+                .mapToObj(seg -> "inventory:" + order.getTrainRunId() + ":" + order.getSeatTypeId() + ":" + seg)
+                .toList();
     }
 
     /** force=true resets existing counts (开售/调库存); force=false only fills missing keys (startup). */

@@ -12,5 +12,6 @@ public record TicketRequestEvent(
         int fromSeq,
         int toSeq,
         int quantity,
-        List<Long> passengerIds
+        List<Long> passengerIds,
+        Long expireAtMillis
 ) { }

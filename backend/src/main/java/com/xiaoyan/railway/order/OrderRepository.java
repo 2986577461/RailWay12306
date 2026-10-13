@@ -35,12 +35,14 @@ public class OrderRepository {
         Order order = orderMapper.selectOne(Wrappers.<Order>lambdaQuery()
                 .eq(Order::getUserId, userId)
                 .eq(Order::getIdempotencyKey, key));
-        return Optional.ofNullable(order).map(o -> new OrderSummary(o.getId(), o.getOrderNo(), o.getLockStatus()));
+        return Optional.ofNullable(order).map(o -> new OrderSummary(o.getId(), o.getOrderNo(), o.getLockStatus(),
+                o.getOrderStatus(), o.getExpireAt()));
     }
 
     public OrderSummary create(long id, Long userId, TicketRequestCommand command, String idempotencyKey) {
         String orderNo = "O" + id;
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expireAt = now.plusMinutes(expireMinutes);
         Order order = Order.builder()
                 .id(id)
                 .orderNo(orderNo)
@@ -53,15 +55,16 @@ public class OrderRepository {
                 .toSeq(command.toSeq())
                 .quantity(command.passengerIds().size())
                 .orderStatus(OrderStatus.PENDING.getCode())
+                .lockStatus(LockStatus.PROCESSING.getCode())
                 .totalAmount(resolveAmount(command))
-                .expireAt(now.plusMinutes(expireMinutes))
+                .expireAt(expireAt)
                 .idempotencyKey(idempotencyKey)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
         try {
             orderMapper.insert(order);
-            return new OrderSummary(id, orderNo, LockStatus.PROCESSING.getCode());
+            return new OrderSummary(id, orderNo, LockStatus.PROCESSING.getCode(), OrderStatus.PENDING.getCode(), expireAt);
         } catch (DuplicateKeyException ignored) {
             return findByIdempotencyKey(userId, idempotencyKey).orElseThrow();
         }
@@ -167,6 +170,6 @@ public class OrderRepository {
         return fare.getPrice().multiply(BigDecimal.valueOf(command.passengerIds().size()));
     }
 
-    public record OrderSummary(Long id, String orderNo, Integer lockStatus) {
+    public record OrderSummary(Long id, String orderNo, Integer lockStatus, Integer orderStatus, LocalDateTime expireAt) {
     }
 }

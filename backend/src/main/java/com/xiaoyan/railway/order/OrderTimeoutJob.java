@@ -25,19 +25,19 @@ public class OrderTimeoutJob {
     }
 
     @Scheduled(fixedDelayString = "${railway.order.timeout-scan-seconds:30000}")
+//    扫描已过期且待支付的订单，释放其库存
     public void cancelExpiredPendingOrders() {
         List<Order> expired = orderRepository.findExpiredPending(LocalDateTime.now(), 200);
-        if (expired.isEmpty()) {
-            return;
-        }
-        for (Order order : expired) {
-            try {
-                if (orderRepository.cancelPending(order.getId())) {
-                    inventoryService.releaseOrder(order);
-                    log.info("Order auto-cancelled by timeout: orderNo={}", order.getOrderNo());
+        if (!expired.isEmpty()) {
+            for (Order order : expired) {
+                try {
+                    if (orderRepository.cancelPending(order.getId())) {
+                        inventoryService.cancelUnpaidOrder(order);
+                        log.info("Order auto-cancelled by timeout: orderNo={}", order.getOrderNo());
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to auto-cancel order {}: {}", order.getOrderNo(), e.getMessage(), e);
                 }
-            } catch (Exception e) {
-                log.error("Failed to auto-cancel order {}: {}", order.getOrderNo(), e.getMessage(), e);
             }
         }
     }
