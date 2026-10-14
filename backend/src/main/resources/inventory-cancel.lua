@@ -6,7 +6,11 @@
 -- Cancel of an UNPAID order. Stock is returned only when this order's lock really deducted it
 -- (record == '1'). When no lock has run yet, a RELEASED tombstone is written so a late lock event
 -- hits inventory-lock.lua's EXISTS check and deducts nothing.
--- Returns: 1 = stock returned, 0 = nothing to return.
+-- Refuses to run (-1) while the ledger rebuild holds inventory:rebuilding.
+-- Returns: 1 = stock returned, 0 = nothing to return, -1 = rebuilding, retry later.
+if redis.call('EXISTS', 'inventory:rebuilding') == 1 then
+    return -1
+end
 local state = redis.call('GET', KEYS[1])
 if state == '1' then
     for i = 2, #KEYS do

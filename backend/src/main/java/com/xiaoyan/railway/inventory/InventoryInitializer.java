@@ -7,8 +7,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * Seeds Redis segment inventory for active train runs at startup.
- * Uses {@code force=false} so existing counts (already deducted by locks) survive restarts.
+ * Rebuilds Redis segment inventory from the order ledger for active train runs at startup,
+ * so stock held by existing orders survives a Redis restart.
  */
 @Component
 public class InventoryInitializer implements ApplicationRunner {
@@ -22,7 +22,7 @@ public class InventoryInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        inventoryService.reloadAll(false);
-        log.info("Redis segment inventory initialized for active train runs");
+        inventoryService.reloadAll();
+        log.info("Redis segment inventory rebuilt from order ledger for active train runs");
     }
 }

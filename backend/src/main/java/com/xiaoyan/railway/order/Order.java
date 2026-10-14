@@ -46,6 +46,8 @@ public class Order {
     private String lockFailReason;
     private BigDecimal totalAmount;
     private LocalDateTime expireAt;
+    /** 1 = 超时取消后 Redis 库存已返还，0 = 尚未返还。 */
+    private Integer stockReleased;
     private String idempotencyKey;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

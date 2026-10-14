@@ -16,6 +16,9 @@ spring:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      # 超时要短：Redis 挂起时快速失败，而不是占住请求线程 60 秒（Lettuce 默认）
+      timeout: ${REDIS_TIMEOUT:1s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
   sql:
     init:
       mode: always

@@ -3,37 +3,74 @@ package com.xiaoyan.railway.query;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.basic.Fare;
 import com.xiaoyan.railway.basic.FareMapper;
+import com.xiaoyan.railway.common.BizException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 
 @Service
 public class QueryService {
+    private static final Duration STALE_LIMIT = Duration.ofMinutes(5);
+    private static final int STALE_CAPACITY = 2000;
+
     private final QueryMapper queryMapper;
     private final FareMapper fareMapper;
     private final StringRedisTemplate redis;
     private final TrainSearchCache cache;
+    private final CircuitBreaker queryBreaker;
+    private final Map<String, Snapshot> lastGood = new ConcurrentHashMap<>();
 
     public QueryService(QueryMapper queryMapper, FareMapper fareMapper,
-                        StringRedisTemplate redis, TrainSearchCache cache) {
+                        StringRedisTemplate redis, TrainSearchCache cache,
+                        @Qualifier("redisQueryBreaker") CircuitBreaker queryBreaker) {
         this.queryMapper = queryMapper;
         this.fareMapper = fareMapper;
         this.redis = redis;
         this.cache = cache;
+        this.queryBreaker = queryBreaker;
     }
 
+    /**
+     * Searches through the query breaker. While Redis or MySQL is failing, serves the last good result
+     * for up to {@link #STALE_LIMIT}, marked {@code stale}; otherwise reports availability as temporarily unknown.
+     */
     public Map<String, Object> search(String from, String to, String date) {
         String key = cache.cacheKey(from, to, date);
-        return cache.getOrRebuild(key, () -> doSearch(from, to, date));
+        try {
+            Map<String, Object> result = queryBreaker.executeSupplier(
+                    () -> cache.getOrRebuild(key, () -> doSearch(from, to, date)));
+            if (lastGood.size() < STALE_CAPACITY || lastGood.containsKey(key)) {
+                lastGood.put(key, new Snapshot(result, Instant.now()));
+            }
+            return result;
+        } catch (CallNotPermittedException | DataAccessException e) {
+            return staleOrUnavailable(key);
+        }
+    }
+
+    private Map<String, Object> staleOrUnavailable(String key) {
+        Snapshot snapshot = lastGood.get(key);
+        if (snapshot == null || snapshot.at().plus(STALE_LIMIT).isBefore(Instant.now())) {
+            throw new BizException("余票暂不可用，请稍后再试");
+        }
+        Map<String, Object> stale = new LinkedHashMap<>(snapshot.value());
+        stale.put("stale", true);
+        return stale;
     }
 
     private Map<String, Object> doSearch(String from, String to, String date) {
@@ -60,9 +97,8 @@ public class QueryService {
         List<Map<String, Object>> seats = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Long seatTypeId = ((Number) row.get("seatTypeId")).longValue();
-            int total = ((Number) row.get("total")).intValue();
             Map<String, Object> seat = new LinkedHashMap<>(row);
-            seat.put("available", available(trainRunId, seatTypeId, fromSeq, toSeq, total));
+            seat.put("available", available(trainRunId, seatTypeId, fromSeq, toSeq));
             seat.put("price", findPrice(trainId, seatTypeId, fromStationId, toStationId));
             seats.add(seat);
         }
@@ -71,8 +107,9 @@ public class QueryService {
 
     /**
      * Live remaining seats = min over the Redis segment keys spanning [fromSeq, toSeq).
+     * Missing keys mean the run was never seeded or Redis lost it, so report 0 rather than the planned total.
      */
-    private int available(Long trainRunId, Long seatTypeId, int fromSeq, int toSeq, int total) {
+    private int available(Long trainRunId, Long seatTypeId, int fromSeq, int toSeq) {
         List<String> keys = IntStream.range(fromSeq, toSeq)
                 .mapToObj(seg -> "inventory:" + trainRunId + ":" + seatTypeId + ":" + seg)
                 .toList();
@@ -86,7 +123,7 @@ public class QueryService {
             found = true;
             min = Math.min(min, Integer.parseInt(v));
         }
-        return found ? Math.max(min, 0) : total;
+        return found ? Math.max(min, 0) : 0;
     }
 
     private BigDecimal findPrice(Long trainId, Long seatTypeId, Long fromStationId, Long toStationId) {
@@ -114,4 +151,6 @@ public class QueryService {
             return "--";
         }
     }
+
+    private record Snapshot(Map<String, Object> value, Instant at) { }
 }

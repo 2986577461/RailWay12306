@@ -8,8 +8,13 @@
 -- marker and skips decrementing, so one order never deducts inventory twice.
 -- Because the whole script runs atomically in Redis, even two consumers racing on the
 -- same order end up with exactly one DECRBY.
+-- Refuses to run (-1) while the ledger rebuild holds inventory:rebuilding.
 --
--- Returns: 0 = insufficient stock (nothing deducted), 1 = newly locked, 2 = already locked.
+-- Returns: -1 = rebuilding, retry later; 0 = insufficient stock (nothing deducted);
+--          1 = newly locked; 2 = already locked.
+if redis.call('EXISTS', 'inventory:rebuilding') == 1 then
+    return -1
+end
 local quantity = tonumber(ARGV[1])
 if redis.call('EXISTS', KEYS[1]) == 1 then
     return 2

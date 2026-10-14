@@ -1,6 +1,5 @@
 package com.xiaoyan.railway.admin;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.basic.Train;
 import com.xiaoyan.railway.basic.TrainMapper;
 import com.xiaoyan.railway.basic.TrainRun;
@@ -50,14 +49,14 @@ public class TrainRunAdminController {
         } catch (DuplicateKeyException e) {
             throw new BizException("该车次当天已有运行");
         }
-        inventoryService.seedRun(run, true);
+        inventoryService.seedRun(run);
         return ApiResponse.ok(run.getId());
     }
 
     /** Force-reset Redis segment inventory for all active runs (调库存/重开售). */
     @PostMapping("/inventory/reload")
     public ApiResponse<Void> reload() {
-        inventoryService.reloadAll(true);
+        inventoryService.reloadAll();
         return ApiResponse.ok(null);
     }
 }

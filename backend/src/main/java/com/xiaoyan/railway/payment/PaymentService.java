@@ -125,7 +125,7 @@ public class PaymentService {
                     .eq(Payment::getId, payment.getId())
                     .eq(Payment::getPaymentStatus, PaymentStatus.PAID.getCode()));
         }
-        inventoryService.releaseOrder(order);
+        inventoryService.refundOrder(order);
         return "退款成功";
     }
 }

@@ -6,6 +6,7 @@ import com.xiaoyan.railway.common.ApiResponse;
 import com.xiaoyan.railway.common.RocketTopics;
 import com.xiaoyan.railway.common.TicketRequestEvent;
 import com.xiaoyan.railway.config.UserContext;
+import com.xiaoyan.railway.inventory.InventoryRedis;
 import com.xiaoyan.railway.order.dto.OrderDetailVO;
 import com.xiaoyan.railway.order.dto.OrderListItemVO;
 import com.xiaoyan.railway.passenger.Passenger;
@@ -36,11 +37,12 @@ public class OrderController {
     private final OrderRateLimiter orderRateLimiter;
     private final PassengerMapper passengerMapper;
     private final OrderPassengerMapper orderPassengerMapper;
+    private final InventoryRedis inventoryRedis;
 
     public OrderController(RocketMQTemplate rocketMQTemplate, OrderRepository orderRepository,
                            OrderIdGenerator orderIdGenerator, OrderService orderService,
                            OrderRateLimiter orderRateLimiter, PassengerMapper passengerMapper,
-                           OrderPassengerMapper orderPassengerMapper) {
+                           OrderPassengerMapper orderPassengerMapper, InventoryRedis inventoryRedis) {
         this.rocketMQTemplate = rocketMQTemplate;
         this.orderRepository = orderRepository;
         this.orderIdGenerator = orderIdGenerator;
@@ -48,6 +50,7 @@ public class OrderController {
         this.orderRateLimiter = orderRateLimiter;
         this.passengerMapper = passengerMapper;
         this.orderPassengerMapper = orderPassengerMapper;
+        this.inventoryRedis = inventoryRedis;
     }
 
     @PostMapping("/requests")
@@ -56,6 +59,9 @@ public class OrderController {
         Long userId = UserContext.userId();
         if (request.toSeq() <= request.fromSeq() || request.passengerIds().isEmpty()) {
             return ApiResponse.fail("区间或乘车人参数不合法");
+        }
+        if (inventoryRedis.isUnavailable()) {
+            return ApiResponse.fail("系统繁忙，请稍后再试");
         }
         orderRateLimiter.check(userId);
 

@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS orders
     lock_fail_reason VARCHAR(255),
     total_amount    DECIMAL(12, 2) NOT NULL,
     expire_at       DATETIME,
+    -- 1 = 超时取消后 Redis 库存已返还；0 = 尚未返还
+    stock_released  TINYINT        NOT NULL DEFAULT 0,
     idempotency_key VARCHAR(128)   NOT NULL,
     created_at      DATETIME       NOT NULL,
     updated_at      DATETIME       NOT NULL,

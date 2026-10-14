@@ -58,6 +58,7 @@ public class OrderRepository {
                 .lockStatus(LockStatus.PROCESSING.getCode())
                 .totalAmount(resolveAmount(command))
                 .expireAt(expireAt)
+                .stockReleased(0)
                 .idempotencyKey(idempotencyKey)
                 .createdAt(now)
                 .updatedAt(now)
@@ -98,6 +99,24 @@ public class OrderRepository {
                 .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())
                 .lt(Order::getExpireAt, now)
                 .last("LIMIT " + limit));
+    }
+
+    /**
+     * Orders holding segment stock in Redis: PAID, and PENDING with a lock not yet failed.
+     * The basis for rebuilding inventory from the ledger.
+     */
+    public List<Order> findStockHolders(List<Long> trainRunIds) {
+        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                .in(Order::getTrainRunId, trainRunIds)
+                .isNotNull(Order::getSeatTypeId)
+                .isNotNull(Order::getFromSeq)
+                .isNotNull(Order::getToSeq)
+                .isNotNull(Order::getQuantity)
+                .and(holder -> holder
+                        .eq(Order::getOrderStatus, OrderStatus.PAID.getCode())
+                        .or(pending -> pending
+                                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())
+                                .in(Order::getLockStatus, LockStatus.PROCESSING.getCode(), LockStatus.LOCKED.getCode()))));
     }
 
     /**
@@ -149,6 +168,30 @@ public class OrderRepository {
                 .set(Order::getLockStatus, LockStatus.PROCESSING.getCode())
                 .eq(Order::getId, orderId)
                 .eq(Order::getOrderStatus, OrderStatus.PAID.getCode())) > 0;
+    }
+
+    /**
+     * Cancelled orders whose stock has not been returned to Redis yet.
+     */
+    public List<Order> findCancelledUnreleased(int limit) {
+        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                .eq(Order::getOrderStatus, OrderStatus.CANCELLED.getCode())
+                .eq(Order::getStockReleased, 0)
+                .last("LIMIT " + limit));
+    }
+
+    public List<Order> findCancelledUnreleasedByRuns(List<Long> trainRunIds) {
+        return orderMapper.selectList(Wrappers.<Order>lambdaQuery()
+                .in(Order::getTrainRunId, trainRunIds)
+                .eq(Order::getOrderStatus, OrderStatus.CANCELLED.getCode())
+                .eq(Order::getStockReleased, 0));
+    }
+
+    public void markStockReleased(Long orderId) {
+        orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
+                .set(Order::getStockReleased, 1)
+                .eq(Order::getId, orderId)
+                .eq(Order::getStockReleased, 0));
     }
 
     /**

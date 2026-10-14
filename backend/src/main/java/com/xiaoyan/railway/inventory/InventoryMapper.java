@@ -11,10 +11,6 @@ import java.util.Map;
 @Mapper
 public interface InventoryMapper {
 
-    /** Number of stops on a train; segments are 1 .. (count-1). Single-run path. */
-    @Select("SELECT MAX(ts.stop_seq) FROM train_stop ts WHERE ts.train_id = #{trainId}")
-    Integer segmentCount(@Param("trainId") Long trainId);
-
     /** Planned total per seat type for a run. Single-run path. */
     @Select("SELECT seat_type_id AS seatTypeId, total_count AS total FROM seat_inventory WHERE train_run_id = #{trainRunId}")
     List<Map<String, Object>> seatTotals(@Param("trainRunId") Long trainRunId);

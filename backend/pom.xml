@@ -51,6 +51,11 @@
             <artifactId>rocketmq-spring-boot-starter</artifactId>
             <version>${rocketmq.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>2.1.0</version>
+        </dependency>
         <!-- JWT (jjwt 0.12.x, new API: Jwts.parser().verifyWith(...)) -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
