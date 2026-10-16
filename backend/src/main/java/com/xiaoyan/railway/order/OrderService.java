@@ -55,10 +55,10 @@ public class OrderService {
                 .last("FOR UPDATE"));
         return orderRepository.findByIdempotencyKey(userId, idempotencyKey).orElseGet(() -> {
             List<String> idCardNos = passengers.stream().map(Passenger::getIdCardNo).toList();
-            if (!idCardNos.isEmpty() && !orderPassengerMapper.findDuplicateIdCardNos(
-                    command.trainRunId(), command.fromSeq(), command.toSeq(), idCardNos).isEmpty()) {
-                throw new BizException("存在乘车人已购买该车次该区间的车票，请核实后再提交");
-            }
+//            if (!idCardNos.isEmpty() && !orderPassengerMapper.findDuplicateIdCardNos(
+//                    command.trainRunId(), command.fromSeq(), command.toSeq(), idCardNos).isEmpty()) {
+//                throw new BizException("存在乘车人已购买该车次该区间的车票，请核实后再提交");
+//            }
             return orderRepository.create(orderId, userId, command, idempotencyKey);
         });
     }

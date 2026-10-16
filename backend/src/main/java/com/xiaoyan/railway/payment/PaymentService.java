@@ -118,17 +118,41 @@ public class PaymentService {
         if (order.getOrderStatus() != OrderStatus.PAID.getCode()) {
             throw new BizException("仅已支付订单可退款");
         }
-        if (!orderRepository.markRefunded(order.getId())) {
+        refundInternal(order.getId());
+        return "退款成功";
+    }
+
+    /**
+     * Admin bulk refund (by order ID only, no user check).
+     * Returns false if order is not in PAID state.
+     */
+    @Transactional
+    public boolean refund(Long orderId) {
+        Order order = orderRepository.findById(orderId);
+        if (order == null || order.getOrderStatus() == OrderStatus.REFUNDED.getCode()) {
+            return false;
+        }
+        if (order.getOrderStatus() != OrderStatus.PAID.getCode()) {
+            return false;
+        }
+        refundInternal(orderId);
+        return true;
+    }
+
+    private void refundInternal(Long orderId) {
+        if (!orderRepository.markRefunded(orderId)) {
             throw new BizException("订单状态已变化，退款失败");
         }
-        Payment payment = paymentMapper.selectOne(Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, order.getId()));
+        Payment payment = paymentMapper.selectOne(Wrappers.<Payment>lambdaQuery().eq(Payment::getOrderId, orderId));
         if (payment != null && payment.getPaymentStatus() == PaymentStatus.PAID.getCode()) {
             paymentMapper.update(null, Wrappers.<Payment>lambdaUpdate()
                     .set(Payment::getPaymentStatus, PaymentStatus.REFUNDED.getCode())
                     .eq(Payment::getId, payment.getId())
                     .eq(Payment::getPaymentStatus, PaymentStatus.PAID.getCode()));
         }
-        inventoryService.refundOrder(order);
-        return "退款成功";
+        Order order = orderRepository.findById(orderId);
+        if (order != null) {
+            inventoryService.refundOrder(order);
+        }
     }
 }

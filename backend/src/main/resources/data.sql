@@ -1,5 +1,8 @@
 -- Railway demo schema and seed data. Production deployments should use Flyway/Liquibase migrations.
 -- The `railway` database must already exist; Spring Boot connects to it via spring.datasource.url.
+drop database if exists railway;
+create database if not exists railway;
+use railway;
 CREATE TABLE IF NOT EXISTS station
 (
     id           BIGINT PRIMARY KEY,

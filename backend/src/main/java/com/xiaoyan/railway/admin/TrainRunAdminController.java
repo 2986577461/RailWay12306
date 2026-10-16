@@ -1,5 +1,6 @@
 package com.xiaoyan.railway.admin;
 
+import com.xiaoyan.railway.admin.dto.BulkCancelCommand;
 import com.xiaoyan.railway.basic.Train;
 import com.xiaoyan.railway.basic.TrainMapper;
 import com.xiaoyan.railway.basic.TrainRun;
@@ -8,6 +9,7 @@ import com.xiaoyan.railway.basic.dto.TrainRunCommand;
 import com.xiaoyan.railway.common.ApiResponse;
 import com.xiaoyan.railway.common.BizException;
 import com.xiaoyan.railway.inventory.InventoryService;
+import com.xiaoyan.railway.order.OrderBulkCancelService;
 import jakarta.validation.Valid;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,12 +25,14 @@ public class TrainRunAdminController {
     private final TrainRunMapper trainRunMapper;
     private final TrainMapper trainMapper;
     private final InventoryService inventoryService;
+    private final OrderBulkCancelService orderBulkCancelService;
 
     public TrainRunAdminController(TrainRunMapper trainRunMapper, TrainMapper trainMapper,
-                                   InventoryService inventoryService) {
+                                   InventoryService inventoryService, OrderBulkCancelService orderBulkCancelService) {
         this.trainRunMapper = trainRunMapper;
         this.trainMapper = trainMapper;
         this.inventoryService = inventoryService;
+        this.orderBulkCancelService = orderBulkCancelService;
     }
 
     /** Create a run for a train on a date, then seed its segment inventory (开售). */
@@ -58,5 +62,15 @@ public class TrainRunAdminController {
     public ApiResponse<Void> reload() {
         inventoryService.reloadAll();
         return ApiResponse.ok(null);
+    }
+
+    /**
+     * Bulk cancel all orders matching the criteria (for load test cleanup).
+     * Cancels PENDING/PAID orders, releases inventory, returns count of cancelled orders.
+     */
+    @PostMapping("/orders/bulk-cancel")
+    public ApiResponse<Integer> bulkCancel(@Valid @RequestBody BulkCancelCommand command) {
+        int count = orderBulkCancelService.cancelByPassengersAndSegment(command);
+        return ApiResponse.ok(count);
     }
 }
