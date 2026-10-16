@@ -1,7 +1,6 @@
 package com.xiaoyan.railway.order;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.common.ApiResponse;
 import com.xiaoyan.railway.common.RocketTopics;
 import com.xiaoyan.railway.common.TicketRequestEvent;
@@ -9,8 +8,6 @@ import com.xiaoyan.railway.config.UserContext;
 import com.xiaoyan.railway.inventory.InventoryRedis;
 import com.xiaoyan.railway.order.dto.OrderDetailVO;
 import com.xiaoyan.railway.order.dto.OrderListItemVO;
-import com.xiaoyan.railway.passenger.Passenger;
-import com.xiaoyan.railway.passenger.PassengerMapper;
 import jakarta.validation.Valid;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.messaging.support.MessageBuilder;
@@ -31,25 +28,18 @@ import java.util.UUID;
 @RequestMapping("/api/orders")
 public class OrderController {
     private final RocketMQTemplate rocketMQTemplate;
-    private final OrderRepository orderRepository;
     private final OrderIdGenerator orderIdGenerator;
     private final OrderService orderService;
     private final OrderRateLimiter orderRateLimiter;
-    private final PassengerMapper passengerMapper;
-    private final OrderPassengerMapper orderPassengerMapper;
     private final InventoryRedis inventoryRedis;
 
-    public OrderController(RocketMQTemplate rocketMQTemplate, OrderRepository orderRepository,
-                           OrderIdGenerator orderIdGenerator, OrderService orderService,
-                           OrderRateLimiter orderRateLimiter, PassengerMapper passengerMapper,
-                           OrderPassengerMapper orderPassengerMapper, InventoryRedis inventoryRedis) {
+    public OrderController(RocketMQTemplate rocketMQTemplate, OrderIdGenerator orderIdGenerator,
+                           OrderService orderService, OrderRateLimiter orderRateLimiter,
+                           InventoryRedis inventoryRedis) {
         this.rocketMQTemplate = rocketMQTemplate;
-        this.orderRepository = orderRepository;
         this.orderIdGenerator = orderIdGenerator;
         this.orderService = orderService;
         this.orderRateLimiter = orderRateLimiter;
-        this.passengerMapper = passengerMapper;
-        this.orderPassengerMapper = orderPassengerMapper;
         this.inventoryRedis = inventoryRedis;
     }
 
@@ -65,20 +55,10 @@ public class OrderController {
         }
         orderRateLimiter.check(userId);
 
-        List<Passenger> passengers = passengerMapper.selectList(Wrappers.<Passenger>lambdaQuery()
-                .in(Passenger::getId, request.passengerIds()));
-        List<String> idCardNos = passengers.stream().map(Passenger::getIdCardNo).toList();
-        List<String> duplicateIdCardNos = idCardNos.isEmpty() ? List.of()
-                : orderPassengerMapper.findDuplicateIdCardNos(request.trainRunId(), request.fromSeq(), request.toSeq(), idCardNos);
-        if (!duplicateIdCardNos.isEmpty()) {
-            return ApiResponse.fail("存在乘车人已购买该车次该区间的车票，请核实后再提交");
-        }
-
         String requestId = idempotencyKey == null || idempotencyKey.isBlank()
                 ? UUID.randomUUID().toString() : idempotencyKey;
 
-        OrderRepository.OrderSummary order = orderRepository.findByIdempotencyKey(userId, requestId)
-                .orElseGet(() -> orderRepository.create(orderIdGenerator.nextId(), userId, request, requestId));
+        OrderRepository.OrderSummary order = orderService.placeOrder(orderIdGenerator.nextId(), userId, request, requestId);
         if (order.orderStatus() == OrderStatus.CANCELLED.getCode()) {
             return ApiResponse.fail("订单已超时取消，请重新下单");
         }

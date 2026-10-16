@@ -93,7 +93,10 @@ public class PaymentService {
         if (updated == 0) {
             return "SUCCESS"; // 并发回调已被另一个线程处理
         }
-        orderRepository.markPaid(payment.getOrderId());
+        if (!orderRepository.markPaid(payment.getOrderId())) {
+            // 订单已超时取消或锁定失败：抛异常让本事务回滚，支付单保持 PENDING
+            throw new BizException("订单已不可支付，回调未生效");
+        }
         // 事务提交后再发事件，避免"库已改、消息没发"
         orderPaidPublisher.publishAfterCommit(payment);
         return "SUCCESS";

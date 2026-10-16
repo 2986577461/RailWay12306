@@ -33,7 +33,7 @@ public class OrderTimeoutJob {
                 try {
                     if (orderRepository.cancelPending(order.getId())) {
                         inventoryService.cancelUnpaidOrder(order);
-                        //redis执行后，扣减了库存，mysql崩了的话，下面的操作有定时任务兜底
+                        //redis执行后，扣减了库存，mysql崩了的话，下面的操作有库存释放定时任务兜底
                         orderRepository.markStockReleased(order.getId());
                         log.info("Order auto-cancelled by timeout: orderNo={}", order.getOrderNo());
                     }

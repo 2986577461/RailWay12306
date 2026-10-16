@@ -14,8 +14,8 @@ import java.math.RoundingMode;
 /**
  * Persists the async inventory-lock outcome onto the order ({@code lock_status}),
  * the missing link that lets the frontend learn whether its ticket was actually locked
- * (locked → payable; failed with a reason such as 余票不足). On success it also writes the
- * per-passenger {@code order_passenger} rows — this is the only place that link is created.
+ * (locked → payable; failed with a reason such as 余票不足). On success it also makes sure the
+ * per-passenger {@code order_passenger} rows exist; they are normally written at order creation.
  */
 @Slf4j
 @Component

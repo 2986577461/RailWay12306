@@ -11,8 +11,8 @@ import java.util.List;
 public interface OrderPassengerMapper extends BaseMapper<OrderPassenger> {
 
     /**
-     * Id-card numbers, among {@code idCardNos}, already ticketed (non-cancelled order) on the
-     * same train run &amp; segment — used to block a passenger from double-booking the same ride.
+     * Id-card numbers, among {@code idCardNos}, held by an order on the same train run &amp; segment that
+     * is not cancelled, refunded or lock-failed — used to block a passenger from double-booking the same ride.
      */
     @Select("""
             <script>
@@ -24,6 +24,7 @@ public interface OrderPassengerMapper extends BaseMapper<OrderPassenger> {
               AND o.from_seq = #{fromSeq}
               AND o.to_seq = #{toSeq}
               AND o.order_status NOT IN (3, 5)
+              AND o.lock_status &lt;&gt; 2
               AND p.id_card_no IN
               <foreach collection="idCardNos" item="idCardNo" open="(" separator="," close=")">#{idCardNo}</foreach>
             </script>

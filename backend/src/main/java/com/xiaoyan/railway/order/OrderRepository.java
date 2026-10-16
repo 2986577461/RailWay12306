@@ -12,6 +12,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -19,13 +20,16 @@ import java.util.Optional;
 @Repository
 public class OrderRepository {
     private final OrderMapper orderMapper;
+    private final OrderPassengerMapper orderPassengerMapper;
     private final TrainRunMapper trainRunMapper;
     private final FareMapper fareMapper;
     private final int expireMinutes;
 
-    public OrderRepository(OrderMapper orderMapper, TrainRunMapper trainRunMapper, FareMapper fareMapper,
+    public OrderRepository(OrderMapper orderMapper, OrderPassengerMapper orderPassengerMapper,
+                           TrainRunMapper trainRunMapper, FareMapper fareMapper,
                            @Value("${railway.order.expire-minutes:15}") int expireMinutes) {
         this.orderMapper = orderMapper;
+        this.orderPassengerMapper = orderPassengerMapper;
         this.trainRunMapper = trainRunMapper;
         this.fareMapper = fareMapper;
         this.expireMinutes = expireMinutes;
@@ -43,6 +47,7 @@ public class OrderRepository {
         String orderNo = "O" + id;
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime expireAt = now.plusMinutes(expireMinutes);
+        BigDecimal totalAmount = resolveAmount(command);
         Order order = Order.builder()
                 .id(id)
                 .orderNo(orderNo)
@@ -56,7 +61,7 @@ public class OrderRepository {
                 .quantity(command.passengerIds().size())
                 .orderStatus(OrderStatus.PENDING.getCode())
                 .lockStatus(LockStatus.PROCESSING.getCode())
-                .totalAmount(resolveAmount(command))
+                .totalAmount(totalAmount)
                 .expireAt(expireAt)
                 .stockReleased(0)
                 .idempotencyKey(idempotencyKey)
@@ -65,9 +70,23 @@ public class OrderRepository {
                 .build();
         try {
             orderMapper.insert(order);
-            return new OrderSummary(id, orderNo, LockStatus.PROCESSING.getCode(), OrderStatus.PENDING.getCode(), expireAt);
         } catch (DuplicateKeyException ignored) {
             return findByIdempotencyKey(userId, idempotencyKey).orElseThrow();
+        }
+        insertPassengers(id, command, totalAmount);
+        return new OrderSummary(id, orderNo, LockStatus.PROCESSING.getCode(), OrderStatus.PENDING.getCode(), expireAt);
+    }
+
+    private void insertPassengers(long orderId, TicketRequestCommand command, BigDecimal totalAmount) {
+        BigDecimal ticketPrice = totalAmount.divide(BigDecimal.valueOf(command.passengerIds().size()), 2, RoundingMode.HALF_UP);
+        for (Long passengerId : command.passengerIds()) {
+            orderPassengerMapper.insert(OrderPassenger.builder()
+                    .orderId(orderId)
+                    .passengerId(passengerId)
+                    .seatTypeId(command.seatTypeId())
+                    .ticketPrice(ticketPrice)
+                    .ticketStatus(1)
+                    .build());
         }
     }
 
@@ -136,14 +155,16 @@ public class OrderRepository {
     }
 
     /**
-     * Optimistic PENDING → PAID transition; returns false if already transitioned.
+     * Optimistic PENDING → PAID transition for a locked order; returns false if the order is no longer
+     * pending or its seats were never locked.
      */
     public boolean markPaid(Long orderId) {
         return orderMapper.update(null, Wrappers.<Order>lambdaUpdate()
                 .set(Order::getOrderStatus, OrderStatus.PAID.getCode())
                 .set(Order::getUpdatedAt, LocalDateTime.now())
                 .eq(Order::getId, orderId)
-                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())) > 0;
+                .eq(Order::getOrderStatus, OrderStatus.PENDING.getCode())
+                .eq(Order::getLockStatus, LockStatus.LOCKED.getCode())) > 0;
     }
 
     /**

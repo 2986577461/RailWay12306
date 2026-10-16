@@ -1,5 +1,6 @@
 package com.xiaoyan.railway.order;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.xiaoyan.railway.basic.Station;
 import com.xiaoyan.railway.basic.StationMapper;
 import com.xiaoyan.railway.basic.Train;
@@ -9,7 +10,10 @@ import com.xiaoyan.railway.basic.TrainRunMapper;
 import com.xiaoyan.railway.common.BizException;
 import com.xiaoyan.railway.order.dto.OrderDetailVO;
 import com.xiaoyan.railway.order.dto.OrderListItemVO;
+import com.xiaoyan.railway.passenger.Passenger;
+import com.xiaoyan.railway.passenger.PassengerMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
@@ -21,16 +25,42 @@ import java.util.stream.Collectors;
 @Service
 public class OrderService {
     private final OrderRepository orderRepository;
+    private final OrderPassengerMapper orderPassengerMapper;
+    private final PassengerMapper passengerMapper;
     private final TrainRunMapper trainRunMapper;
     private final TrainMapper trainMapper;
     private final StationMapper stationMapper;
 
-    public OrderService(OrderRepository orderRepository, TrainRunMapper trainRunMapper,
+    public OrderService(OrderRepository orderRepository, OrderPassengerMapper orderPassengerMapper,
+                        PassengerMapper passengerMapper, TrainRunMapper trainRunMapper,
                         TrainMapper trainMapper, StationMapper stationMapper) {
         this.orderRepository = orderRepository;
+        this.orderPassengerMapper = orderPassengerMapper;
+        this.passengerMapper = passengerMapper;
         this.trainRunMapper = trainRunMapper;
         this.trainMapper = trainMapper;
         this.stationMapper = stationMapper;
+    }
+
+    /**
+     * Locks the passenger rows first, so two orders for the same passenger serialize here. Only then are the
+     * idempotency key and the same-ride check read, so the second request sees the first one's committed rows.
+     */
+    @Transactional
+    public OrderRepository.OrderSummary placeOrder(long orderId, Long userId, TicketRequestCommand command,
+                                                   String idempotencyKey) {
+        List<Passenger> passengers = passengerMapper.selectList(Wrappers.<Passenger>lambdaQuery()
+                .in(Passenger::getId, command.passengerIds())
+                .orderByAsc(Passenger::getId)
+                .last("FOR UPDATE"));
+        return orderRepository.findByIdempotencyKey(userId, idempotencyKey).orElseGet(() -> {
+            List<String> idCardNos = passengers.stream().map(Passenger::getIdCardNo).toList();
+            if (!idCardNos.isEmpty() && !orderPassengerMapper.findDuplicateIdCardNos(
+                    command.trainRunId(), command.fromSeq(), command.toSeq(), idCardNos).isEmpty()) {
+                throw new BizException("存在乘车人已购买该车次该区间的车票，请核实后再提交");
+            }
+            return orderRepository.create(orderId, userId, command, idempotencyKey);
+        });
     }
 
     public OrderDetailVO detail(Long userId, String orderNo) {
