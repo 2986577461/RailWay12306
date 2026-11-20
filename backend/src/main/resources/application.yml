@@ -21,7 +21,7 @@ spring:
       connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
   sql:
     init:
-      mode: always
+      mode: never
       data-locations: classpath:/data.sql
 
 rocketmq:
