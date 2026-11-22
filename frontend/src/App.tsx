@@ -35,7 +35,7 @@ export default function App() {
     <div className="app-shell">
       <Sidebar />
       <div className="app-main">
-        <Topbar onRent={() => setRentTarget(gpus[0])} />
+        <Topbar onRent={() => setRentTarget(gpus[0])} onAction={showToast} />
         <main className="app-content">
           <Routes>
             <Route path="/" element={<Dashboard onRent={setRentTarget} orders={orders} />} />
