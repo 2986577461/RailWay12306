@@ -3,12 +3,11 @@ server:
 
 spring:
   application:
-    name: railway-platform
+    name: nebula-compute-platform
   profiles:
-    # 本地默认加载 application-dev.yml；部署时通过 SPRING_PROFILES_ACTIVE 覆盖
     active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
-    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/railway?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/railway?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&connectionTimeZone=Asia/Shanghai&forceConnectionTimeZoneToSession=true}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
   data:
@@ -16,37 +15,42 @@ spring:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+  jackson:
+    time-zone: Asia/Shanghai
   sql:
     init:
       mode: always
+      continue-on-error: false
       data-locations: classpath:/data.sql
 
 rocketmq:
   name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}
   producer:
-    group: railway-producer
+    group: nebula-compute-producer
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
-railway:
+compute:
   jwt:
-    # HS256 密钥（至少 32 字节），必须通过环境变量 JWT_SECRET 或 application-dev.yml 提供
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:nebula-compute-dev-secret-key-please-change-2026}
     expire-days: ${JWT_EXPIRE_DAYS:7}
-  pay:
-    # mock 支付回调签名密钥（模拟微信/支付宝与商户共用的 appKey），必须通过环境变量 PAY_MOCK_SECRET 提供
-    mock-secret: ${PAY_MOCK_SECRET}
+  payment:
+    mock-secret: ${PAY_MOCK_SECRET:nebula-mock-pay-secret-2026}
   order:
-    # 未支付订单过期时间（分钟）与超时扫描间隔（毫秒）；测试可调小
     expire-minutes: ${ORDER_EXPIRE_MINUTES:15}
-    timeout-scan-seconds: ${TIMEOUT_SCAN_SECONDS:30000}
-    # 同一用户下单频率。压测前把 enabled 设为 false，避免限流把请求挡在库存之前。
+    timeout-scan-seconds: ${TIMEOUT_SCAN_SECONDS:15000}
     rate-limit:
       enabled: ${ORDER_RATE_LIMIT_ENABLED:false}
       window-seconds: ${ORDER_RATE_LIMIT_WINDOW_SECONDS:10}
-      max-requests: ${ORDER_RATE_LIMIT_MAX:1}
+      max-requests: ${ORDER_RATE_LIMIT_MAX:5}
+  provision:
+    delay-ms: ${PROVISION_DELAY_MS:1200}
+    failure-rate: ${PROVISION_FAILURE_RATE:0}
+    max-retries: ${PROVISION_MAX_RETRIES:3}
+    retry-delay-seconds: ${PROVISION_RETRY_DELAY_SECONDS:5}
+    retry-scan-seconds: ${PROVISION_RETRY_SCAN_SECONDS:10000}
 
 management:
   endpoints:

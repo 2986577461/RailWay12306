@@ -15,3 +15,5 @@ frontend/node_modules/
 /deploy
 /AGENTS.md
 /backend/src/main/resources/application-dev.yml
+/flow
+/CLAUDE.md

@@ -1,272 +1,248 @@
--- Railway demo schema and seed data. Production deployments should use Flyway/Liquibase migrations.
--- The `railway` database must already exist; Spring Boot connects to it via spring.datasource.url.
-CREATE TABLE IF NOT EXISTS station
-(
-    id           BIGINT PRIMARY KEY,
-    station_code VARCHAR(20) NOT NULL UNIQUE,
-    station_name VARCHAR(64) NOT NULL,
-    city_name    VARCHAR(64),
-    pinyin       VARCHAR(128),
-    status       TINYINT     NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS train
-(
-    id               BIGINT PRIMARY KEY,
-    train_no         VARCHAR(32) NOT NULL UNIQUE,
-    train_type       VARCHAR(32),
-    start_station_id BIGINT      NOT NULL,
-    end_station_id   BIGINT      NOT NULL,
-    start_time       TIME,
-    end_time         TIME,
-    status           TINYINT     NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS train_stop
-(
-    id           BIGINT PRIMARY KEY,
-    train_id     BIGINT NOT NULL,
-    station_id   BIGINT NOT NULL,
-    stop_seq     INT    NOT NULL,
-    arrive_time  TIME,
-    depart_time  TIME,
-    stop_minutes INT DEFAULT 0,
-    UNIQUE KEY uk_train_seq (train_id, stop_seq),
-    UNIQUE KEY uk_train_station (train_id, station_id)
-);
-CREATE TABLE IF NOT EXISTS seat_type
-(
-    id   BIGINT PRIMARY KEY,
-    code VARCHAR(32) NOT NULL UNIQUE,
-    name VARCHAR(32) NOT NULL
-);
-CREATE TABLE IF NOT EXISTS train_seat
-(
-    id           BIGINT PRIMARY KEY,
-    train_id     BIGINT      NOT NULL,
-    seat_type_id BIGINT      NOT NULL,
-    carriage_no  INT         NOT NULL,
-    seat_no      VARCHAR(16) NOT NULL,
-    seat_row     VARCHAR(8),
-    seat_col     VARCHAR(8),
-    UNIQUE KEY uk_train_seat (train_id, carriage_no, seat_no)
-);
-CREATE TABLE IF NOT EXISTS train_run
-(
+-- Nebula Compute demo schema and seed data.
+-- Executed on every boot because spring.sql.init.mode=always.
+-- This is intentionally a demo reset: drop and recreate the core tables.
+
+SET NAMES utf8mb4;
+SET time_zone = '+08:00';
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS billing_invoice;
+DROP TABLE IF EXISTS gpu_instance;
+DROP TABLE IF EXISTS provision_task;
+DROP TABLE IF EXISTS payment;
+DROP TABLE IF EXISTS rental_order;
+DROP TABLE IF EXISTS gpu_inventory_slot;
+DROP TABLE IF EXISTS gpu_sku;
+DROP TABLE IF EXISTS outbox_event;
+DROP TABLE IF EXISTS app_user;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE app_user (
     id            BIGINT PRIMARY KEY,
-    train_id      BIGINT  NOT NULL,
-    run_date      DATE    NOT NULL,
-    sale_start_at DATETIME,
-    status        TINYINT NOT NULL DEFAULT 1,
-    UNIQUE KEY uk_train_date (train_id, run_date)
-);
-CREATE TABLE IF NOT EXISTS seat_inventory
-(
-    id           BIGINT PRIMARY KEY,
-    train_run_id BIGINT NOT NULL,
-    seat_type_id BIGINT NOT NULL,
-    total_count  INT    NOT NULL,
-    locked_count INT    NOT NULL DEFAULT 0,
-    sold_count   INT    NOT NULL DEFAULT 0,
-    version      INT    NOT NULL DEFAULT 0,
-    UNIQUE KEY uk_run_seat_type (train_run_id, seat_type_id)
-);
-CREATE TABLE IF NOT EXISTS seat_segment_inventory
-(
-    id           BIGINT PRIMARY KEY,
-    train_run_id BIGINT NOT NULL,
-    seat_type_id BIGINT NOT NULL,
-    from_seq     INT    NOT NULL,
-    to_seq       INT    NOT NULL,
-    total_count  INT    NOT NULL,
-    sold_count   INT    NOT NULL DEFAULT 0,
-    locked_count INT    NOT NULL DEFAULT 0,
-    UNIQUE KEY uk_segment (train_run_id, seat_type_id, from_seq, to_seq)
-);
-CREATE TABLE IF NOT EXISTS user_account
-(
-    id            BIGINT PRIMARY KEY,
-    phone         VARCHAR(20)  NOT NULL UNIQUE,
+    email         VARCHAR(128) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    real_name     VARCHAR(64),
-    id_card_no    VARCHAR(128),
-    id_card_type  TINYINT               DEFAULT 1,
+    display_name  VARCHAR(64)  NOT NULL,
     status        TINYINT      NOT NULL DEFAULT 1,
+    balance       DECIMAL(12,2) NOT NULL DEFAULT 0,
     created_at    DATETIME     NOT NULL,
     updated_at    DATETIME     NOT NULL
-);
-CREATE TABLE IF NOT EXISTS passenger
-(
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE gpu_sku (
     id             BIGINT PRIMARY KEY,
-    user_id        BIGINT       NOT NULL,
-    name           VARCHAR(64)  NOT NULL,
-    id_card_no     VARCHAR(128) NOT NULL,
-    passenger_type TINYINT      NOT NULL DEFAULT 1,
-    phone          VARCHAR(20),
-    status         TINYINT      NOT NULL DEFAULT 1,
-    created_at     DATETIME     NOT NULL,
-    updated_at     DATETIME     NOT NULL,
-    UNIQUE KEY uk_user_card (user_id, id_card_no)
-);
-CREATE TABLE IF NOT EXISTS orders
-(
-    id              BIGINT PRIMARY KEY,
-    order_no        VARCHAR(64)    NOT NULL UNIQUE,
-    user_id         BIGINT         NOT NULL,
-    train_run_id    BIGINT         NOT NULL,
-    from_station_id BIGINT         NOT NULL,
-    to_station_id   BIGINT         NOT NULL,
-    -- 锁库存所需信息：取消/退款时据此释放 Redis 分段库存
-    seat_type_id    BIGINT,
-    from_seq        INT,
-    to_seq          INT,
-    quantity        INT,
-    order_status    TINYINT        NOT NULL,
-    -- 库存锁定状态：0处理中 1已锁 2锁定失败；lock_fail_reason 记录失败原因（如"余票不足"）
-    lock_status     TINYINT        NOT NULL DEFAULT 0,
-    lock_fail_reason VARCHAR(255),
-    total_amount    DECIMAL(12, 2) NOT NULL,
-    expire_at       DATETIME,
-    idempotency_key VARCHAR(128)   NOT NULL,
-    created_at      DATETIME       NOT NULL,
-    updated_at      DATETIME       NOT NULL,
-    UNIQUE KEY uk_user_idempotency (user_id, idempotency_key)
-);
-CREATE TABLE IF NOT EXISTS order_passenger
-(
-    id            BIGINT PRIMARY KEY,
-    order_id      BIGINT         NOT NULL,
-    passenger_id  BIGINT         NOT NULL,
-    seat_type_id  BIGINT         NOT NULL,
-    seat_id       BIGINT,
-    ticket_price  DECIMAL(12, 2) NOT NULL,
-    ticket_status TINYINT        NOT NULL DEFAULT 1,
-    UNIQUE KEY uk_order_passenger (order_id, passenger_id)
-);
-CREATE TABLE IF NOT EXISTS inventory_lock
-(
+    code           VARCHAR(64)  NOT NULL UNIQUE,
+    name           VARCHAR(128) NOT NULL,
+    architecture   VARCHAR(64)  NOT NULL,
+    memory_gb      INT          NOT NULL,
+    memory_type    VARCHAR(32)  NOT NULL,
+    bandwidth      VARCHAR(32)  NOT NULL,
+    tflops         VARCHAR(32)  NOT NULL,
+    price_per_hour DECIMAL(10,2) NOT NULL,
+    region         VARCHAR(64)  NOT NULL,
+    badge          VARCHAR(32),
+    description    VARCHAR(255),
+    use_cases      VARCHAR(255),
+    accent         VARCHAR(16),
+    capacity       INT          NOT NULL DEFAULT 1,
+    status         TINYINT      NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE gpu_inventory_slot (
     id           BIGINT PRIMARY KEY,
-    lock_no      VARCHAR(64) NOT NULL UNIQUE,
-    order_id     BIGINT      NOT NULL,
-    train_run_id BIGINT      NOT NULL,
-    seat_id      BIGINT,
-    from_seq     INT         NOT NULL,
-    to_seq       INT         NOT NULL,
-    expire_at    DATETIME    NOT NULL,
-    status       TINYINT     NOT NULL DEFAULT 1,
-    created_at   DATETIME    NOT NULL
-);
-CREATE TABLE IF NOT EXISTS ticket
-(
-    id                 BIGINT PRIMARY KEY,
-    ticket_no          VARCHAR(64) NOT NULL UNIQUE,
-    order_id           BIGINT      NOT NULL,
-    order_passenger_id BIGINT      NOT NULL,
-    seat_id            BIGINT      NOT NULL,
-    ticket_status      TINYINT     NOT NULL,
-    issued_at          DATETIME,
-    refunded_at        DATETIME
-);
-CREATE TABLE IF NOT EXISTS payment
-(
+    sku_id       BIGINT   NOT NULL,
+    slot_start   DATETIME NOT NULL,
+    total_count  INT      NOT NULL,
+    locked_count INT      NOT NULL DEFAULT 0,
+    sold_count   INT      NOT NULL DEFAULT 0,
+    version      INT      NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_sku_slot (sku_id, slot_start),
+    KEY idx_slot_start (slot_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE rental_order (
+    id                    BIGINT PRIMARY KEY,
+    order_no              VARCHAR(64) NOT NULL UNIQUE,
+    user_id               BIGINT      NOT NULL,
+    sku_id                BIGINT      NOT NULL,
+    region                VARCHAR(64) NOT NULL,
+    quantity              INT         NOT NULL,
+    start_at              DATETIME    NOT NULL,
+    end_at                DATETIME    NOT NULL,
+    hours                 INT         NOT NULL,
+    unit_price            DECIMAL(10,2) NOT NULL,
+    total_amount          DECIMAL(12,2) NOT NULL,
+    status                TINYINT     NOT NULL,
+    lock_status           TINYINT     NOT NULL DEFAULT 0,
+    lock_fail_reason      VARCHAR(255),
+    provision_status      TINYINT     NOT NULL DEFAULT 0,
+    provision_retry_count INT         NOT NULL DEFAULT 0,
+    provision_error       VARCHAR(255),
+    instance_id           BIGINT,
+    payment_no            VARCHAR(64),
+    expire_at             DATETIME,
+    paid_at               DATETIME,
+    provisioned_at        DATETIME,
+    completed_at          DATETIME,
+    cancelled_at          DATETIME,
+    idempotency_key       VARCHAR(128) NOT NULL,
+    created_at            DATETIME    NOT NULL,
+    updated_at            DATETIME    NOT NULL,
+    UNIQUE KEY uk_user_idempotency (user_id, idempotency_key),
+    KEY idx_user_created (user_id, created_at),
+    KEY idx_status_expire (status, expire_at),
+    KEY idx_status_end (status, end_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payment (
     id             BIGINT PRIMARY KEY,
-    order_id       BIGINT         NOT NULL,
-    payment_no     VARCHAR(64)    NOT NULL UNIQUE,
-    channel        VARCHAR(32)    NOT NULL,
-    amount         DECIMAL(12, 2) NOT NULL,
-    payment_status TINYINT        NOT NULL,
+    payment_no     VARCHAR(64) NOT NULL UNIQUE,
+    order_id       BIGINT      NOT NULL UNIQUE,
+    channel        VARCHAR(32) NOT NULL,
+    amount         DECIMAL(12,2) NOT NULL,
+    status         TINYINT     NOT NULL,
     third_party_no VARCHAR(128),
     paid_at        DATETIME,
-    UNIQUE KEY uk_payment_order (order_id)
-);
-CREATE TABLE IF NOT EXISTS outbox_event
-(
+    refunded_at    DATETIME,
+    created_at     DATETIME    NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE provision_task (
+    id                   BIGINT PRIMARY KEY,
+    order_id             BIGINT NOT NULL UNIQUE,
+    status               TINYINT NOT NULL,
+    attempt              INT NOT NULL DEFAULT 0,
+    next_retry_at        DATETIME,
+    last_error           VARCHAR(255),
+    provider_instance_id VARCHAR(128),
+    created_at           DATETIME NOT NULL,
+    updated_at           DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE gpu_instance (
+    id            BIGINT PRIMARY KEY,
+    instance_no   VARCHAR(64) NOT NULL UNIQUE,
+    order_id      BIGINT      NOT NULL UNIQUE,
+    sku_id        BIGINT      NOT NULL,
+    region        VARCHAR(64) NOT NULL,
+    status        TINYINT     NOT NULL,
+    private_ip    VARCHAR(64),
+    endpoint      VARCHAR(128),
+    ssh_command   VARCHAR(255),
+    utilization   INT         NOT NULL DEFAULT 0,
+    started_at    DATETIME,
+    expires_at    DATETIME,
+    terminated_at DATETIME,
+    created_at    DATETIME    NOT NULL,
+    updated_at    DATETIME    NOT NULL,
+    KEY idx_instance_user_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE billing_invoice (
+    id           BIGINT PRIMARY KEY,
+    user_id      BIGINT      NOT NULL,
+    invoice_no   VARCHAR(64) NOT NULL UNIQUE,
+    period_label VARCHAR(32) NOT NULL,
+    amount       DECIMAL(12,2) NOT NULL,
+    status       VARCHAR(32) NOT NULL,
+    issued_at    DATE        NOT NULL,
+    KEY idx_invoice_user (user_id, issued_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE outbox_event (
     id             BIGINT PRIMARY KEY,
-    event_id       VARCHAR(64)  NOT NULL UNIQUE,
-    aggregate_type VARCHAR(64)  NOT NULL,
-    aggregate_id   VARCHAR(64)  NOT NULL,
+    event_id       VARCHAR(64) NOT NULL UNIQUE,
+    aggregate_type VARCHAR(64) NOT NULL,
+    aggregate_id   VARCHAR(64) NOT NULL,
     topic          VARCHAR(128) NOT NULL,
-    payload        JSON         NOT NULL,
-    status         TINYINT      NOT NULL DEFAULT 0,
-    created_at     DATETIME     NOT NULL,
+    payload        JSON NOT NULL,
+    status         TINYINT NOT NULL DEFAULT 0,
+    created_at     DATETIME NOT NULL,
     published_at   DATETIME
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO station (id, station_code, station_name, city_name, pinyin)
-VALUES (1, 'BJP', '北京', '北京', 'beijing'),
-       (2, 'TJP', '天津', '天津', 'tianjin'),
-       (3, 'SHH', '上海', '上海', 'shanghai');
-INSERT IGNORE INTO seat_type (id, code, name)
-VALUES (1, 'SECOND_CLASS', '二等座'),
-       (2, 'FIRST_CLASS', '一等座'),
-       (3, 'BUSINESS', '商务座');
-INSERT IGNORE INTO train (id, train_no, train_type, start_station_id, end_station_id, start_time, end_time)
-VALUES (1001, 'G101', '高速动车', 1, 3, '06:30:00', '11:36:00');
-INSERT IGNORE INTO train_stop (id, train_id, station_id, stop_seq, arrive_time, depart_time)
-VALUES (11001, 1001, 1, 1, NULL, '06:30:00'),
-       (11002, 1001, 2, 2, '07:05:00', '07:07:00'),
-       (11003, 1001, 3, 3, '11:36:00', NULL);
-INSERT IGNORE INTO train_run (id, train_id, run_date, sale_start_at)
-VALUES (12001, 1001, '2026-09-10', '2026-09-01 08:00:00');
-INSERT IGNORE INTO seat_inventory (id, train_run_id, seat_type_id, total_count)
-VALUES (13001, 12001, 1, 600),
-       (13002, 12001, 2, 100),
-       (13003, 12001, 3, 16);
+-- demo account: demo@nebula.ai / Nebula@2026
+INSERT INTO app_user (id, email, password_hash, display_name, status, balance, created_at, updated_at)
+VALUES (10001, 'demo@nebula.ai',
+        '$2a$10$fJPBTloYiUADcwkpADCkc.MtpDapbYZwMYkZwkT3Zf6XpNWUnxm9i',
+        'Alex Chen', 1, 12680.00, NOW(), NOW());
 
-INSERT IGNORE INTO train (id, train_no, train_type, start_station_id, end_station_id, start_time, end_time)
-VALUES (1002, 'G102', '高速动车', 3, 1, '12:10:00', '17:18:00'),
-       (1003, 'G7', '高速动车', 1, 3, '10:00:00', '14:28:00');
-INSERT IGNORE INTO train_stop (id, train_id, station_id, stop_seq, arrive_time, depart_time)
-VALUES (11011, 1002, 3, 1, NULL, '12:10:00'),
-       (11012, 1002, 2, 2, '16:28:00', '16:30:00'),
-       (11013, 1002, 1, 3, '17:18:00', NULL),
-       (11021, 1003, 1, 1, NULL, '10:00:00'),
-       (11022, 1003, 3, 2, '14:28:00', NULL);
+INSERT INTO gpu_sku (id, code, name, architecture, memory_gb, memory_type, bandwidth, tflops,
+                     price_per_hour, region, badge, description, use_cases, accent, capacity, status)
+VALUES
+(1, 'h100-sxm', 'NVIDIA H100 SXM', 'Hopper', 80, 'HBM3', '3.35 TB/s', '1,979 TFLOPS',
+ 42.00, '上海 · CN-East', '旗舰', '为大模型训练、长上下文推理和科学计算准备的旗舰算力。', 'LLM 训练,推理集群,科学计算', '#b8f36a', 16, 1),
+(2, 'a100-80g', 'NVIDIA A100', 'Ampere', 80, 'HBM2e', '2.0 TB/s', '624 TFLOPS',
+ 26.00, '北京 · CN-North', '高性价比', '成熟稳定的通用 GPU 工作负载，适合微调、向量检索和推理。', '模型微调,向量检索,批量推理', '#65d9f7', 24, 1),
+(3, 'l40s', 'NVIDIA L40S', 'Ada Lovelace', 48, 'GDDR6', '864 GB/s', '733 TFLOPS',
+ 18.00, '深圳 · CN-South', '推理优选', '面向图形渲染、生成式 AI 和视频推理的高密度推理节点。', '生成式 AI,视频推理,图形渲染', '#c7a8ff', 20, 1),
+(4, 'rtx-4090', 'NVIDIA RTX 4090', 'Ada Lovelace', 24, 'GDDR6X', '1.0 TB/s', '330 TFLOPS',
+ 9.00, '上海 · CN-East', '开发者友好', '适合个人开发者、原型验证、小型模型微调和实时推理。', '原型验证,小型微调,实时推理', '#ffb86b', 32, 1);
 
-INSERT IGNORE INTO train_run (id, train_id, run_date, sale_start_at, status)
-WITH RECURSIVE dates AS (
+-- 72 hourly slots from the current hour for each SKU.
+INSERT INTO gpu_inventory_slot (id, sku_id, slot_start, total_count, locked_count, sold_count, version)
+WITH RECURSIVE hours AS (
     SELECT 0 AS n
     UNION ALL
-    SELECT n + 1 FROM dates WHERE n < 119
+    SELECT n + 1 FROM hours WHERE n < 71
 )
-SELECT 12000 + n + 1, 1001, DATE_ADD('2026-09-10', INTERVAL n DAY), '2026-09-01 08:00:00', 1 FROM dates
-UNION ALL
-SELECT 22000 + n + 1, 1002, DATE_ADD('2026-09-10', INTERVAL n DAY), '2026-09-01 08:00:00', 1 FROM dates
-UNION ALL
-SELECT 32000 + n + 1, 1003, DATE_ADD('2026-09-10', INTERVAL n DAY), '2026-09-01 08:00:00', 1 FROM dates;
+SELECT sku.id * 1000 + h.n,
+       sku.id,
+       DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL h.n HOUR),
+       sku.capacity,
+       0, 0, 0
+FROM gpu_sku sku CROSS JOIN hours h;
 
-INSERT IGNORE INTO seat_inventory (id, train_run_id, seat_type_id, total_count, locked_count, sold_count, version)
-WITH RECURSIVE dates AS (
-    SELECT 0 AS n
-    UNION ALL
-    SELECT n + 1 FROM dates WHERE n < 119
-)
-SELECT 13000 + n * 10 + st.id, 12000 + n + 1, st.id,
-       CASE st.id WHEN 1 THEN 600 WHEN 2 THEN 100 ELSE 16 END, 0, 0, 0
-FROM dates CROSS JOIN seat_type st
-UNION ALL
-SELECT 23000 + n * 10 + st.id, 22000 + n + 1, st.id,
-       CASE st.id WHEN 1 THEN 560 WHEN 2 THEN 90 ELSE 12 END, 0, 0, 0
-FROM dates CROSS JOIN seat_type st
-UNION ALL
-SELECT 33000 + n * 10 + st.id, 32000 + n + 1, st.id,
-       CASE st.id WHEN 1 THEN 480 WHEN 2 THEN 80 ELSE 10 END, 0, 0, 0
-FROM dates CROSS JOIN seat_type st;
+-- Demo orders: running, provisioning, pending payment, and a degraded running instance.
+INSERT INTO rental_order
+(id, order_no, user_id, sku_id, region, quantity, start_at, end_at, hours, unit_price, total_amount,
+ status, lock_status, provision_status, instance_id, payment_no, expire_at, paid_at, provisioned_at,
+ completed_at, cancelled_at, idempotency_key, created_at, updated_at)
+VALUES
+(90001, 'ORD-90001', 10001, 1, '上海 · CN-East', 2,
+ DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 2 HOUR),
+ DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 6 HOUR), 8, 42.00, 672.00,
+ 4, 1, 3, 91001, 'PAY-90001', DATE_ADD(NOW(), INTERVAL 15 MINUTE), DATE_SUB(NOW(), INTERVAL 2 HOUR),
+ DATE_SUB(NOW(), INTERVAL 2 HOUR), NULL, NULL, 'seed-90001', DATE_SUB(NOW(), INTERVAL 3 HOUR), NOW()),
+(90002, 'ORD-90002', 10001, 2, '北京 · CN-North', 1,
+ DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 4 HOUR),
+ DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 16 HOUR), 12, 26.00, 312.00,
+ 3, 1, 1, NULL, 'PAY-90002', DATE_ADD(NOW(), INTERVAL 15 MINUTE), DATE_SUB(NOW(), INTERVAL 1 HOUR),
+ NULL, NULL, NULL, 'seed-90002', DATE_SUB(NOW(), INTERVAL 1 HOUR), NOW()),
+(90003, 'ORD-90003', 10001, 3, '深圳 · CN-South', 4,
+ DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 19 HOUR),
+ DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 28 HOUR), 9, 18.00, 648.00,
+ 1, 1, 0, NULL, NULL, DATE_ADD(NOW(), INTERVAL 15 MINUTE), NULL, NULL, NULL, NULL,
+ 'seed-90003', DATE_SUB(NOW(), INTERVAL 30 MINUTE), NOW()),
+(90004, 'ORD-90004', 10001, 3, '深圳 · CN-South', 1,
+ DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 1 HOUR),
+ DATE_ADD(DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00'), INTERVAL 8 HOUR), 9, 18.00, 162.00,
+ 4, 1, 3, 91002, 'PAY-90004', DATE_ADD(NOW(), INTERVAL 15 MINUTE), DATE_SUB(NOW(), INTERVAL 1 HOUR),
+ DATE_SUB(NOW(), INTERVAL 1 HOUR), NULL, NULL, 'seed-90004', DATE_SUB(NOW(), INTERVAL 2 HOUR), NOW());
 
-CREATE TABLE IF NOT EXISTS fare (
-  id BIGINT PRIMARY KEY,
-  train_id BIGINT NOT NULL,
-  seat_type_id BIGINT NOT NULL,
-  from_station_id BIGINT NOT NULL,
-  to_station_id BIGINT NOT NULL,
-  price DECIMAL(10,2) NOT NULL,
-  UNIQUE KEY uk_fare (train_id, seat_type_id, from_station_id, to_station_id)
-);
+INSERT INTO payment (id, payment_no, order_id, channel, amount, status, third_party_no, paid_at, created_at)
+VALUES
+(92001, 'PAY-90001', 90001, 'MOCK', 672.00, 1, 'MOCK-SEED-1', DATE_SUB(NOW(), INTERVAL 2 HOUR), DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(92002, 'PAY-90002', 90002, 'MOCK', 312.00, 1, 'MOCK-SEED-2', DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_SUB(NOW(), INTERVAL 1 HOUR)),
+(92003, 'PAY-90004', 90004, 'MOCK', 162.00, 1, 'MOCK-SEED-4', DATE_SUB(NOW(), INTERVAL 2 HOUR), DATE_SUB(NOW(), INTERVAL 2 HOUR));
 
--- G101 / G102 共用：北京-天津 / 天津-上海 / 北京-上海 各席别票价
-INSERT IGNORE INTO fare (id, train_id, seat_type_id, from_station_id, to_station_id, price) VALUES
-  (14001, 1001, 1, 1, 2, 54.50), (14002, 1001, 2, 1, 2, 87.00),  (14003, 1001, 3, 1, 2, 174.00),
-  (14004, 1001, 1, 2, 3, 508.00), (14005, 1001, 2, 2, 3, 858.00), (14006, 1001, 3, 2, 3, 1700.00),
-  (14007, 1001, 1, 1, 3, 553.00), (14008, 1001, 2, 1, 3, 933.00), (14009, 1001, 3, 1, 3, 1866.00),
-  (14010, 1002, 1, 3, 2, 508.00), (14011, 1002, 2, 3, 2, 858.00), (14012, 1002, 3, 3, 2, 1700.00),
-  (14013, 1002, 1, 3, 1, 553.00), (14014, 1002, 2, 3, 1, 933.00), (14015, 1002, 3, 3, 1, 1866.00),
-  (14016, 1002, 1, 2, 1, 54.50), (14017, 1002, 2, 2, 1, 87.00),  (14018, 1002, 3, 2, 1, 174.00),
-  (14019, 1003, 1, 1, 3, 553.00), (14020, 1003, 2, 1, 3, 933.00), (14021, 1003, 3, 1, 3, 1866.00);
+INSERT INTO provision_task (id, order_id, status, attempt, last_error, provider_instance_id, created_at, updated_at)
+VALUES
+(93001, 90002, 2, 0, NULL, NULL, DATE_SUB(NOW(), INTERVAL 1 HOUR), NOW());
+
+INSERT INTO gpu_instance
+(id, instance_no, order_id, sku_id, region, status, private_ip, endpoint, ssh_command,
+ utilization, started_at, expires_at, terminated_at, created_at, updated_at)
+VALUES
+(91001, 'inst-h100-7f2a', 90001, 1, '上海 · CN-East', 1, '10.24.8.117',
+ 'inst-h100-7f2a.nebula.internal', 'nebula ssh inst-h100-7f2a', 78,
+ DATE_SUB(NOW(), INTERVAL 2 HOUR), DATE_ADD(NOW(), INTERVAL 6 HOUR), NULL, DATE_SUB(NOW(), INTERVAL 2 HOUR), NOW()),
+(91002, 'inst-l40s-8c90', 90004, 3, '深圳 · CN-South', 3, '10.31.2.44',
+ 'inst-l40s-8c90.nebula.internal', 'nebula ssh inst-l40s-8c90', 41,
+ DATE_SUB(NOW(), INTERVAL 1 HOUR), DATE_ADD(NOW(), INTERVAL 8 HOUR), NULL, DATE_SUB(NOW(), INTERVAL 1 HOUR), NOW());
+
+INSERT INTO billing_invoice (id, user_id, invoice_no, period_label, amount, status, issued_at)
+VALUES
+(94001, 10001, 'INV-2026-11-001', '2026 年 11 月', 8420.00, '已结算', '2026-11-21'),
+(94002, 10001, 'INV-2026-10-001', '2026 年 10 月', 7492.00, '已结算', '2026-10-31'),
+(94003, 10001, 'INV-2026-09-001', '2026 年 9 月', 6128.00, '已结算', '2026-09-30');

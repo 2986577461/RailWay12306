@@ -1,6 +1,6 @@
-# 铁路 12306 前端
+# Nebula Compute Console
 
-Vue 3 + JavaScript + Axios + Vite。对接后端现有 controller，支付功能暂未接入。
+AI 算力租赁与交付平台前端原型，使用 React 18 + TypeScript + Vite 构建。
 
 ## 启动
 
@@ -10,4 +10,15 @@ npm install
 npm run dev
 ```
 
-开发服务默认 `http://127.0.0.1:5173`，`/api` 代理到后端 `8080`。
+默认地址：http://localhost:5173/
+
+## 页面
+
+- `/` 总览：集群利用率、实例、订单、Agent 洞察
+- `/market` GPU 市场：架构筛选、区域筛选、租期配置与下单弹窗
+- `/orders` 订单中心：状态筛选、订单列表、履约时间线抽屉
+- `/instances` 我的实例：运行状态、利用率、SSH endpoint、诊断入口
+- `/billing` 账单与用量：余额、预算、资源成本拆分、账单
+- `/support` 售后智能体：对话、上下文、工具权限预览
+
+当前数据为前端 mock，后续接入 Java 后端 API。
